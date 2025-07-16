@@ -1,0 +1,53 @@
+{
+  "name": "mintai-dialect-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "闽台方言大模型前端应用",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.1",
+    "antd": "^5.11.1",
+    "@ant-design/icons": "^5.2.6",
+    "axios": "^1.6.1",
+    "dayjs": "^1.11.10",
+    "ahooks": "^3.7.8",
+    "classnames": "^2.3.2",
+    "react-audio-player": "^0.17.0",
+    "react-audio-voice-recorder": "^2.2.0",
+    "wavesurfer.js": "^7.3.2",
+    "@types/wavesurfer.js": "^6.0.6"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.1.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0",
+    "eslint": "^8.53.0",
+    "@typescript-eslint/eslint-plugin": "^6.10.0",
+    "@typescript-eslint/parser": "^6.10.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.4",
+    "tailwindcss": "^3.3.6",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31"
+  },
+  "keywords": [
+    "闽台方言",
+    "语音识别",
+    "语音合成",
+    "AI",
+    "方言翻译"
+  ],
+  "author": "闽台方言大模型团队",
+  "license": "MIT"
+} 

@@ -1,0 +1,276 @@
+# ====================
+# 闽台方言大模型系统 - Git忽略配置
+# ====================
+
+# ========== 操作系统文件 ==========
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.fuse_hidden*
+.Trash-*
+
+# ========== IDE / 编辑器 ==========
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# PyCharm
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+
+# ========== 前端 (React/Node.js) ==========
+# 依赖包
+frontend/node_modules/
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# 构建输出
+frontend/dist/
+frontend/build/
+
+# 环境变量
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# 缓存
+frontend/.cache/
+frontend/.parcel-cache/
+frontend/.next/
+frontend/.nuxt/
+frontend/.vuepress/dist/
+
+# 日志文件
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/lerna-debug.log*
+
+# 测试覆盖率
+frontend/coverage/
+frontend/.nyc_output/
+
+# ========== 后端 (Python/FastAPI) ==========
+# Python字节码
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+
+# Python虚拟环境
+backend/venv/
+backend/env/
+backend/.venv/
+backend/.env/
+
+# 环境变量
+backend/.env
+backend/.env.local
+backend/.env.production
+
+# Python分发包
+backend/build/
+backend/develop-eggs/
+backend/dist/
+backend/downloads/
+backend/eggs/
+backend/.eggs/
+backend/lib/
+backend/lib64/
+backend/parts/
+backend/sdist/
+backend/var/
+backend/wheels/
+backend/pip-wheel-metadata/
+backend/share/python-wheels/
+backend/*.egg-info/
+backend/.installed.cfg
+backend/*.egg
+
+# PyInstaller
+backend/*.manifest
+backend/*.spec
+
+# 单元测试
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.tox/
+backend/.nox/
+backend/coverage.xml
+backend/*.cover
+backend/.hypothesis/
+
+# Jupyter Notebook
+backend/.ipynb_checkpoints
+
+# IPython
+backend/profile_default/
+backend/ipython_config.py
+
+# ========== 数据库 ==========
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# 数据库备份
+*.sql.bak
+*.dump
+
+# ========== 上传文件 & 日志 ==========
+# 用户上传文件
+backend/uploads/
+uploads/
+temp/
+tmp/
+
+# 日志文件
+logs/
+*.log
+backend/logs/
+frontend/logs/
+
+# ========== AI模型文件 ==========
+# 模型文件 (通常很大，不应该提交到Git)
+backend/models/
+models/
+*.pth
+*.pt
+*.h5
+*.pb
+*.onnx
+*.tflite
+*.bin
+*.safetensors
+
+# 模型缓存
+.transformers_cache/
+.cache/
+cache/
+
+# ========== 配置 & 密钥 ==========
+# 密钥文件
+*.key
+*.pem
+*.p12
+*.pfx
+secret.*
+secrets.*
+
+# 配置文件 (包含敏感信息)
+config.json
+settings.json
+*.config
+
+# SSL证书
+ssl/
+*.crt
+*.cer
+
+# ========== Docker & 部署 ==========
+# Docker
+.dockerignore
+
+# 部署相关
+deploy/
+.deploy/
+kubernetes/
+
+# ========== 备份 & 临时文件 ==========
+# 备份文件
+*.bak
+*.backup
+*.old
+*.orig
+*.tmp
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ========== 开发工具 ==========
+# 进程ID文件
+.backend.pid
+.frontend.pid
+*.pid
+
+# 锁文件
+*.lock
+
+# 性能监控
+.nyc_output/
+coverage/
+
+# ========== 自定义忽略 ==========
+# 开发时的测试文件
+test_files/
+demo_audio/
+sample_data/
+
+# 个人笔记
+TODO.md
+NOTES.md
+personal/
+
+# 实验性代码
+experimental/
+playground/
+
+# 第三方集成
+.stripe/
+.paypal/
+
+# ========== 不忽略的文件 ==========
+# 确保这些重要文件被包含
+!.gitkeep
+!README.md
+!LICENSE
+!requirements.txt
+!package.json
+!docker-compose.yml
+!Dockerfile
+!.env.example
+
+# 确保脚本文件被包含
+!scripts/
+!scripts/*.sh
+!scripts/*.bat 
