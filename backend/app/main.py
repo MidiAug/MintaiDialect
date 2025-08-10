@@ -104,7 +104,7 @@ if __name__ == "__main__":
     import uvicorn
     # 开发环境启动配置
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
