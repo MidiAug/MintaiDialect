@@ -15,6 +15,7 @@ from app.models.schemas import (
     BaseResponse, ErrorResponse, LanguageType, AudioFormat
 )
 from app.core.config import settings
+from app.services import asr_service, tts_service, llm_service
 
 router = APIRouter()
 
@@ -79,8 +80,15 @@ async def voice_chat(
             with open(file_path, "wb") as f:
                 f.write(contents)
             
-            # TODO: 调用ASR模型进行语音识别
-            user_input = f"这是通过{user_language.value}语音识别得到的用户输入内容"
+            # 外部 ASR 服务
+            if settings.asr_service_url:
+                result = await asr_service.transcribe(
+                    audio_file.filename, contents, source_language=user_language.value
+                )
+                user_input = result.get("text", "")
+            else:
+                # 模拟
+                user_input = f"这是通过{user_language.value}语音识别得到的用户输入内容"
         
         if text_input:
             user_input = text_input
@@ -91,11 +99,14 @@ async def voice_chat(
         
         history = conversation_history[conversation_id]
         
-        # TODO: 调用对话模型生成回复
-        # 这里应该基于用户输入和对话历史生成合适的回复
-        
-        # 模拟AI回复生成
-        response_text = generate_mock_response(user_input, user_language, response_language, history)
+        # LLM 服务：输出台罗拼音
+        response_text = None
+        if settings.llm_service_url:
+            llm_result = await llm_service.chat_to_taibun(user_input, history=history)
+            response_text = llm_result.get("text")
+        if not response_text:
+            # 模拟回复
+            response_text = generate_mock_response(user_input, user_language, response_language, history)
         
         # 生成语音回复
         response_audio_url = None
@@ -104,14 +115,23 @@ async def voice_chat(
             audio_filename = f"{audio_id}_response.wav"
             audio_path = Path(settings.upload_dir) / audio_filename
             
-            # TODO: 调用TTS模型生成语音
-            # 创建模拟音频文件
-            with open(audio_path, "wb") as f:
-                f.write(b'RIFF')
-                f.write(b'\x24\x08\x00\x00')
-                f.write(b'WAVE')
-            
-            response_audio_url = f"/uploads/{audio_filename}"
+            if settings.tts_service_url:
+                tts_result = await tts_service.synthesize(
+                    response_text, target_language=response_language.value
+                )
+                response_audio_url = tts_result.get("audio_url")
+                # 若服务返回二进制，上层保存
+                if not response_audio_url and tts_result.get("binary"):
+                    with open(audio_path, "wb") as f:
+                        f.write(tts_result["binary"])
+                    response_audio_url = f"/uploads/{audio_filename}"
+            else:
+                # 创建模拟音频文件
+                with open(audio_path, "wb") as f:
+                    f.write(b'RIFF')
+                    f.write(b'\x24\x08\x00\x00')
+                    f.write(b'WAVE')
+                response_audio_url = f"/uploads/{audio_filename}"
         
         # 更新对话历史
         history.append({

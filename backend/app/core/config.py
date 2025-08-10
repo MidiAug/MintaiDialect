@@ -33,26 +33,25 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173"
     ]
     
-    # AI模型配置 (预留)
-    # ASR模型配置
-    asr_model_path: str = ""
-    asr_model_name: str = "whisper-base"
-    
-    # TTS模型配置
-    tts_model_path: str = ""
-    tts_model_name: str = "tts-model"
-    
-    # 语音翻译模型配置
-    translation_model_path: str = ""
-    translation_model_name: str = "speech-translation-model"
-    
-    # 对话模型配置
-    dialogue_model_path: str = ""
-    dialogue_model_name: str = "dialogue-model"
-    
-    # 音色克隆模型配置
-    voice_cloning_model_path: str = ""
-    voice_cloning_model_name: str = "voice-cloning-model"
+    # 外部模型服务配置（通过HTTP调用本地独立服务或云厂商API网关）
+    # 留空则使用内置的模拟返回，以保证开发阶段可用
+    asr_service_url: str = ""
+    tts_service_url: str = ""
+    speech_translation_service_url: str = ""
+    voice_interaction_service_url: str = ""
+    voice_cloning_service_url: str = ""
+    llm_service_url: str = ""  # 专用于文本→台罗拼音的模型服务
+
+    # 统一的请求配置
+    model_request_timeout: int = 60  # 秒
+    provider_name: str = ""         # 可选：如 openai, azure, volcengine 等
+    provider_api_key: str = ""      # 可选：云厂商API密钥
+    # LLM厂商配置（示例：Google Gemini）
+    llm_model_name: str = "gemini-2.0-flash"  # 当 provider_name=gemini 时使用
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+
+    # 数字嘉庚相关：检索内容文件路径（默认硬编码到仓库内）
+    jiageng_retrieval_path: str = "knowledge/digital_jiageng.txt"
     
     # 音频处理配置
     audio_sample_rate: int = 16000
@@ -75,7 +74,15 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 # 创建全局配置实例
-settings = Settings()
+def _load_settings() -> Settings:
+    s = Settings()
+    # 支持通过 ALLOWED_ORIGINS=comma,separated,urls 覆盖默认
+    env_val = os.getenv("ALLOWED_ORIGINS")
+    if env_val:
+        s.allowed_origins = [x.strip() for x in env_val.split(",") if x.strip()]
+    return s
+
+settings = _load_settings()
 
 # 确保必要的目录存在
 def ensure_directories():

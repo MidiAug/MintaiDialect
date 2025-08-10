@@ -13,6 +13,7 @@ from app.models.schemas import (
     BaseResponse, ErrorResponse, LanguageType, AudioFormat
 )
 from app.core.config import settings
+import httpx
 
 router = APIRouter()
 
@@ -36,6 +37,26 @@ async def translate_speech(
     - **return_text**: 是否返回翻译后的文本
     """
     try:
+        # 外部服务直连
+        if settings.speech_translation_service_url:
+            async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
+                files = {"audio_file": (audio_file.filename, await audio_file.read())}
+                data = {
+                    "source_language": source_language.value,
+                    "target_language": target_language.value,
+                    "return_audio": str(return_audio).lower(),
+                    "return_text": str(return_text).lower(),
+                }
+                resp = await client.post(
+                    f"{settings.speech_translation_service_url}/translate",
+                    files=files,
+                    data=data,
+                    headers={
+                        "Authorization": f"Bearer {settings.provider_api_key}" if settings.provider_api_key else ""
+                    },
+                )
+                resp.raise_for_status()
+                return BaseResponse(success=True, message="语音翻译完成", data=resp.json())
         # 验证语言组合
         if source_language == target_language:
             raise HTTPException(

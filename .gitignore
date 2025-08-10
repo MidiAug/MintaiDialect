@@ -167,10 +167,46 @@ logs/
 backend/logs/
 frontend/logs/
 
-# ========== AI模型文件 ==========
-# 模型文件 (通常很大，不应该提交到Git)
+# ========== AI模型文件 / 推理服务产物 ==========
+# 说明：项目是 前端 + 主后端 + 多个推理服务(models/asr_service、tts_service、llm_service)。
+# 我们不忽略服务代码，但忽略大文件/权重/缓存/运行产物。
+
+# 后端本地权重目录（若存在）
 backend/models/
-models/
+
+# 后端代码中的数据模型定义需要保留
+!backend/app/models/
+!backend/app/models/**
+
+# 推理服务通用忽略（仅忽略大文件与产物，不忽略代码）
+models/**/weights/
+models/**/checkpoints/
+models/**/artifacts/
+models/**/runs/
+models/**/outputs/
+models/**/output/
+models/**/downloads/
+models/**/datasets/
+models/**/data/
+models/**/logs/
+models/**/cache/
+models/**/.cache/
+models/**/.huggingface/
+models/**/__pycache__/
+models/**/.venv/
+models/**/venv/
+
+# 大模型权重/二进制文件
+models/**/*.bin
+models/**/*.pt
+models/**/*.pth
+models/**/*.safetensors
+models/**/*.onnx
+models/**/*.tflite
+models/**/*.zip
+models/**/*.tar
+models/**/*.tar.gz
+models/**/*.7z
 *.pth
 *.pt
 *.h5

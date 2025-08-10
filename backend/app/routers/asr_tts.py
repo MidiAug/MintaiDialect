@@ -15,6 +15,7 @@ from app.models.schemas import (
     BaseResponse, ErrorResponse, LanguageType, AudioFormat
 )
 from app.core.config import settings
+from app.services import asr_service, tts_service
 
 router = APIRouter()
 
@@ -36,6 +37,18 @@ async def speech_to_text(
     - **enable_word_level**: 是否返回词级别的详细信息
     """
     try:
+        # 如果配置了外部ASR服务，则走服务层
+        if settings.asr_service_url:
+            contents = await audio_file.read()
+            result = await asr_service.transcribe(
+                audio_file.filename,
+                contents,
+                source_language=source_language.value,
+                enable_timestamps=enable_timestamps,
+                enable_word_level=enable_word_level,
+            )
+            return BaseResponse(success=True, message="语音识别完成", data=result)
+
         # 验证文件格式
         file_extension = audio_file.filename.split('.')[-1].lower()
         if file_extension not in settings.allowed_audio_formats:
@@ -108,6 +121,16 @@ async def text_to_speech(request: TTSRequest):
     - **audio_format**: 输出音频格式
     """
     try:
+        # 如果配置了外部TTS服务，则走服务层
+        if settings.tts_service_url:
+            result = await tts_service.synthesize(
+                request.text,
+                target_language=request.target_language.value,
+                voice_style=request.voice_style or "default",
+                audio_format=request.audio_format.value,
+            )
+            return BaseResponse(success=True, message="文本转语音完成", data=result)
+
         # 验证文本长度
         if len(request.text) > 1000:
             raise HTTPException(
