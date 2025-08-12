@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict
 import logging
 import time
 from datetime import datetime
@@ -14,10 +14,15 @@ from ..models.schemas import (
 from app.core.config import settings
 from app.services import asr_service, tts_service, llm_service
 from pathlib import Path
+import tempfile
+import subprocess
 import json
+import re
+import wave
 
 router = APIRouter(prefix="/api/digital-jiageng", tags=["数字嘉庚"])
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 # ============ 请求/响应模型 ============
 
@@ -38,6 +43,8 @@ class JiagengChatResponse(BaseModel):
     emotion: str
     confidence: float
     processing_time: float
+    subtitle_text: Optional[str] = None
+    subtitles: Optional[List[Dict]] = None
 
 class JiagengInfo(BaseModel):
     name: str
@@ -57,7 +64,8 @@ async def chat_with_jiageng(
     input_language: LanguageType = Form(LanguageType.MINNAN),
     output_language: LanguageType = Form(LanguageType.MINNAN),
     voice_gender: str = Form("male"),
-    speaking_speed: float = Form(1.0)
+    speaking_speed: float = Form(1.0),
+    show_subtitles: bool = Form(True)
 ):
     """
     与数字嘉庚进行对话
@@ -66,6 +74,14 @@ async def chat_with_jiageng(
     start_time = time.time()
     
     try:
+        logger.info("[DJ] 收到 /chat 请求")
+        logger.info(
+            "[DJ] 入参: text_input=%s, has_audio=%s, show_subtitles=%s, enable_role_play=%s, input_language=%s, output_language=%s, voice_gender=%s, speaking_speed=%s",
+            (text_input[:50] + '...') if text_input and len(text_input) > 50 else text_input,
+            bool(audio_file is not None), show_subtitles,
+            enable_role_play, input_language, output_language, voice_gender, speaking_speed,
+        )
+
         # 参数验证
         if not audio_file and not text_input:
             raise HTTPException(
@@ -74,33 +90,43 @@ async def chat_with_jiageng(
             )
         
         if audio_file:
-            # 验证音频文件
-            if not audio_file.content_type.startswith('audio/'):
-                raise HTTPException(
-                    status_code=400,
-                    detail="不支持的音频格式"
-                )
-            
-            if audio_file.size > 50 * 1024 * 1024:  # 50MB限制
-                raise HTTPException(
-                    status_code=400,
-                    detail="音频文件过大，请上传小于50MB的文件"
-                )
+            # 验证音频文件 MIME
+            if not audio_file.content_type or not audio_file.content_type.startswith('audio/'):
+                raise HTTPException(status_code=400, detail="不支持的音频格式")
         
         # 1) 处理输入：若有音频，先进行 ASR
         if audio_file:
-            if hasattr(audio_file, "read"):
-                contents = await audio_file.read()
-            else:
-                contents = await audio_file.read()
+            contents = await audio_file.read()
+            logger.debug("[DJ] 上传音频: filename=%s, content_type=%s, size=%s bytes",
+                         audio_file.filename, audio_file.content_type, len(contents))
+            # 尺寸校验（基于内容长度）
+            if len(contents) > settings.max_file_size:
+                raise HTTPException(status_code=400, detail="音频文件过大，请上传小于50MB的文件")
+
+            # 若为 webm/ogg/m4a/mp3/flac 等，尝试用 ffmpeg 转 WAV（16k/mono）
+            input_ct = (audio_file.content_type or "").lower()
+            needs_convert = any(
+                ct in input_ct for ct in ["webm", "ogg", "m4a", "mp3", "flac"]
+            )
+            if needs_convert:
+                # 无法安装系统 ffmpeg 时，直接跳过转码，依赖 ASR 管道自行处理
+                logger.warning("[DJ] 检测到非WAV音频，但系统无ffmpeg可用，将直接使用原始字节流")
             if settings.asr_service_url:
-                asr_res = await asr_service.transcribe(audio_file.filename, contents, source_language=input_language.value)
+                # 传入转码后的 WAV 字节
+                logger.debug("[DJ] 调用ASR服务: url=%s", settings.asr_service_url)
+                asr_res = await asr_service.transcribe(
+                    audio_file.filename or "recording.wav",
+                    contents,
+                    source_language=input_language.value,
+                )
                 user_input = asr_res.get("text") or ""
+                logger.info("[DJ] ASR完成: text=%s", (user_input[:120] + '...') if len(user_input) > 120 else user_input)
             else:
                 user_input = ""
-            logger.info(f"处理音频文件: {audio_file.filename}")
+            logger.info(f"[DJ] 处理音频文件完成: {audio_file.filename}")
         else:
             user_input = text_input or ""
+            logger.debug("[DJ] 使用文本输入: %s", (user_input[:120] + '...') if len(user_input) > 120 else user_input)
         
         # 2) 构建 messages（OpenAI 兼容），融合可选检索内容
         sys_prompt = "扮演陈嘉庚，根据提供的信息回答问题，要做到代入角色，不要回复与角色无关的内容。"
@@ -112,11 +138,16 @@ async def chat_with_jiageng(
                     retrieved = path.read_text(encoding="utf-8")
                 except Exception:
                     retrieved = ""
-        # 要求以 JSON 输出，便于解析：{"zh": "...", "tlp": "..."}
-        # 其中 tlp 为接近厦门发音的 POJ 白话文注音；规则：原逗号→空格，原空格→ '-'
+        # 根据 show_subtitles 动态要求 LLM 输出
+        # - 勾选字幕：同时需要中文与台罗 -> {"zh": "...", "tlp": "..."}
+        # - 不勾选：仅返回台罗 -> {"tlp": "..."}
+        if show_subtitles:
+            format_hint = "严格以 JSON 返回：{\\\"zh\\\": \\\"中文普通话回答\\\", \\\"tlp\\\": \\\"对应的POJ白话文注音\\\"}。"
+        else:
+            format_hint = "严格以 JSON 返回：{\\\"tlp\\\": \\\"对应的POJ白话文注音\\\"}。不要包含 zh 字段。"
         prompt = (
             "你是陈嘉庚，请基于提供的资料进行角色化回答。"
-            "严格以 JSON 返回：{\"zh\": \"中文普通话回答\", \"tlp\": \"对应的POJ白话文注音\"}。"
+            f"{format_hint}"
             "注意：tlp 中将原逗号替换为空格，将原空格替换为 '-'。不要输出除 JSON 之外的任何内容。\n"
             f"资料：{retrieved}\n"
             f"用户问题：{user_input}"
@@ -125,52 +156,182 @@ async def chat_with_jiageng(
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": prompt},
         ]
-        llm_out = await llm_service.chat_messages(messages, model_hint=None)
-        response_text = llm_out.get("text") or ""
-        zh_text = response_text
-        tlp_text = ""
-        # 优先解析 JSON
+        logger.debug("[DJ] 调用LLM服务，messages条数=%d", len(messages))
+        response_text = ""
         try:
-            parsed = json.loads(response_text)
-            zh_text = parsed.get("zh") or zh_text
-            tlp_text = parsed.get("tlp") or ""
+            llm_out = await llm_service.chat_messages(messages, model_hint=None)
+            response_text = llm_out.get("text") or ""
+            logger.info("[DJ] LLM返回文本: %s", (response_text) )
         except Exception:
-            # 如果不是 JSON，就直接把整体文本作为中文回答（退化）
-            pass
+            logger.exception("[DJ] LLM 调用失败，使用降级回复")
+            # 降级：如果无法连接LLM，给出保底文本，保持链路可用
+            response_text = (user_input or "您好！我已收到您的消息，我们稍后给出更详细的回答。")
+        zh_text = ""
+        tlp_text = ""
+        # 优先解析 JSON（未勾选字幕时不会把原始 JSON 作为中文落下）
+        def _normalize_jsonish_str(s: str) -> str:
+            if not s:
+                return ""
+            cleaned = s.strip()
+            # 去掉代码围栏
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+            # 替换中文引号/冒号为英文
+            cleaned = cleaned.replace('“', '"').replace('”', '"').replace("‘", "'").replace("’", "'")
+            cleaned = cleaned.replace('：', ':')
+            # 尝试把单引号键/值替换为双引号（仅在看起来像 JSON 的情况下）
+            # 先处理键名 'zh': -> "zh":
+            cleaned = re.sub(r"'([A-Za-z_]+)'\s*:\s*", r'"\1": ', cleaned)
+            # 值用单引号的 'xxx' -> "xxx"
+            cleaned = re.sub(r":\s*'([^'\\]*(?:\\.[^'\\]*)*)'", r': "\1"', cleaned)
+            # 若出现 { \"zh\": \"...\" } 这类伪 JSON，将 \" 解为 "，并清理常见转义
+            if re.search(r"\{\s*\\\"", cleaned):
+                cleaned = cleaned.replace('\\"', '"')
+                cleaned = cleaned.replace('\\n', ' ')
+                cleaned = cleaned.replace('\\t', ' ')
+            # 移除尾随逗号
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            return cleaned
+
+        def _extract_field(raw: str, key: str) -> str:
+            if not raw:
+                return ""
+            # 1) 标准 JSON 键 "key": "..."
+            m = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw, flags=re.IGNORECASE | re.DOTALL)
+            if m:
+                val = m.group(1)
+                try:
+                    # 尝试用 JSON 再解码一次，处理 \uXXXX 等
+                    return json.loads('"' + val + '"')
+                except Exception:
+                    return val.replace('\\n', ' ').replace('\\t', ' ').replace('\\"', '"').strip()
+            # 2) 单引号 JSON 风格 'key': '...'
+            m = re.search(rf"'{key}'\s*:\s*'((?:\\.|[^'\\])*)'", raw, flags=re.IGNORECASE | re.DOTALL)
+            if m:
+                val = m.group(1)
+                try:
+                    return json.loads('"' + val.replace('"', '\\"') + '"')
+                except Exception:
+                    return val.replace('\\n', ' ').replace('\\t', ' ').replace("\\'", "'").strip()
+            # 3) 行内格式：key: 值 / key：值（直到换行或下一个键名出现）
+            m = re.search(rf'(?:^|\n)\s*{key}\s*[:：]\s*(.+?)(?=\n\s*[A-Za-z_]+\s*[:：]|\n*$)', raw, flags=re.IGNORECASE | re.DOTALL)
+            if m:
+                val = m.group(1)
+                val = val.strip().strip('"').strip("'")
+                return val
+            return ""
+
+        def _parse_llm(raw_in) -> tuple[str, str]:
+            # 统一为字符串
+            raw: str
+            if isinstance(raw_in, str):
+                raw = raw_in
+            else:
+                try:
+                    raw = json.dumps(raw_in, ensure_ascii=False)
+                except Exception:
+                    raw = str(raw_in)
+            # 首次尝试：原文直接 JSON
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    zh_v = data.get('zh') or data.get('ZH') or data.get('Zh')
+                    tlp_v = data.get('tlp') or data.get('TLP') or data.get('Tlp')
+                    return (str(zh_v or ''), str(tlp_v or ''))
+            except Exception:
+                pass
+            # 二次：normalize 后再 JSON
+            cleaned = _normalize_jsonish_str(raw)
+            try:
+                data2 = json.loads(cleaned)
+                if isinstance(data2, dict):
+                    zh_v = data2.get('zh') or data2.get('ZH') or data2.get('Zh')
+                    tlp_v = data2.get('tlp') or data2.get('TLP') or data2.get('Tlp')
+                    return (str(zh_v or ''), str(tlp_v or ''))
+            except Exception:
+                pass
+            # 三次：截取最外层 { ... } 再试
+            start = cleaned.find('{')
+            end = cleaned.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                candidate = cleaned[start:end+1]
+                try:
+                    data3 = json.loads(candidate)
+                    if isinstance(data3, dict):
+                        zh_v = data3.get('zh') or data3.get('ZH') or data3.get('Zh')
+                        tlp_v = data3.get('tlp') or data3.get('TLP') or data3.get('Tlp')
+                        return (str(zh_v or ''), str(tlp_v or ''))
+                except Exception:
+                    pass
+            # 最后：用正则直接抽取字段（容错，避免整体失败）
+            zh_guess = _extract_field(cleaned, 'zh') or _extract_field(raw, 'zh')
+            tlp_guess = _extract_field(cleaned, 'tlp') or _extract_field(raw, 'tlp')
+            # 极简兜底：若仍未取到，尝试非贪婪匹配双引号包裹的值
+            if not tlp_guess:
+                m_last = re.search(r'"tlp"\s*:\s*"(.*?)"', raw, flags=re.DOTALL)
+                if m_last:
+                    tlp_guess = m_last.group(1)
+            return zh_guess, tlp_guess
+
+        zh_text, tlp_text = _parse_llm(response_text)
+        logger.debug("[DJ] 解析LLM输出: zh_len=%s tlp_len=%s", len(zh_text), len(tlp_text))
+
         # 简单情感设置（可后续接入情感模型）
         emotion = "睿智" if enable_role_play else "友好"
         
-        # 3) TTS：将上一步中文或台罗输出转为语音（此处建议用台罗部分）
+        # 若缺失台罗，直接抛错，让前端给出重试提示
+        if not tlp_text:
+            logger.error("[DJ] LLM 未返回台罗文本，无法进行TTS")
+            raise HTTPException(status_code=502, detail="生成台罗拼音失败，请重试")
+
+        # 3) TTS：仅使用台罗拼音（TLPA/POJ）转语音
         response_audio_url = None
         try:
+            tts_res = None
             if settings.tts_service_url:
-                tts_input_text = tlp_text if tlp_text else zh_text
+                logger.debug("[DJ] 调用TTS服务: url=%s, 台罗文本长度=%d", settings.tts_service_url, len(tlp_text))
                 tts_res = await tts_service.synthesize(
-                    text=tts_input_text,
+                    text=tlp_text,
                     target_language=output_language.value,
                 )
-                response_audio_url = tts_res.get("audio_url")
+                # 若返回直接是音频二进制，则保存到 uploads 并返回 URL
+                if tts_res and tts_res.get("binary"):
+                    uploads_dir = Path(settings.upload_dir)
+                    uploads_dir.mkdir(parents=True, exist_ok=True)
+                    ts = int(time.time() * 1000)
+                    out_path = uploads_dir / f"jiageng_reply_{ts}.wav"
+                    with open(out_path, "wb") as f:
+                        f.write(tts_res["binary"]) 
+                    response_audio_url = f"/uploads/{out_path.name}"
+                    logger.info("[DJ] TTS音频已保存: %s", out_path)
+                    # 计算时长并生成后端字幕（仅当需要字幕且有中文）
+                    audio_duration = _compute_wav_duration_seconds(out_path)
+                    backend_subtitles = _build_subtitles_from_zh(zh_text, audio_duration) if show_subtitles and zh_text else []
+                elif tts_res:
+                    response_audio_url = tts_res.get("audio_url")
+                    logger.info("[DJ] TTS返回音频URL: %s", response_audio_url)
+                    backend_subtitles = []
         except Exception as _:
+            logger.exception("[DJ] TTS 处理失败")
             response_audio_url = None
         
         processing_time = time.time() - start_time
         # 简单置信度占位
         confidence = 0.9
         
-        # 将文本回答优先返回中文+台罗（若有）
-        combined_text = zh_text if zh_text else response_text
-        if tlp_text:
-            combined_text = f"{combined_text}\n\n[POJ] {tlp_text}"
+        # 将文本回答优先返回台罗（当前阶段用于 TTS），字幕文本单独返回
+        combined_text = tlp_text or zh_text or response_text
 
         response_data = JiagengChatResponse(
             response_text=combined_text,
             response_audio_url=response_audio_url,
             emotion=emotion,
             confidence=confidence,
-            processing_time=processing_time
+            processing_time=processing_time,
+            subtitle_text=zh_text,
+            subtitles=backend_subtitles if (show_subtitles and zh_text) else []
         )
         
-        logger.info(f"嘉庚对话完成，处理时间: {processing_time:.2f}s")
+        logger.info(f"[DJ] 嘉庚对话完成，处理时间: {processing_time:.2f}s, 有音频={bool(response_audio_url)}, show_subtitles={show_subtitles}")
         
         return BaseResponse(
             success=True,
@@ -179,9 +340,10 @@ async def chat_with_jiageng(
         )
         
     except HTTPException:
+        logger.exception("[DJ] HTTPException")
         raise
     except Exception as e:
-        logger.error(f"嘉庚对话处理失败: {str(e)}")
+        logger.exception(f"[DJ] 嘉庚对话处理失败: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"对话处理失败: {str(e)}"
@@ -312,3 +474,123 @@ def validate_jiageng_settings(settings: JiagengSettings) -> bool:
         return False
     
     return True 
+
+def _compute_wav_duration_seconds(path: Path) -> float:
+    try:
+        with open(path, 'rb') as f:
+            riff = f.read(12)
+            if len(riff) < 12 or riff[0:4] != b'RIFF' or riff[8:12] != b'WAVE':
+                return 0.0
+            fmt_found = False
+            data_size = None
+            sample_rate = None
+            channels = None
+            bits_per_sample = None
+            # 迭代 chunk
+            while True:
+                hdr = f.read(8)
+                if len(hdr) < 8:
+                    break
+                chunk_id = hdr[0:4]
+                chunk_size = int.from_bytes(hdr[4:8], 'little', signed=False)
+                if chunk_id == b'fmt ':
+                    fmt = f.read(chunk_size)
+                    if len(fmt) >= 16:
+                        # wFormatTag(2) nChannels(2) nSamplesPerSec(4) nAvgBytesPerSec(4) nBlockAlign(2) wBitsPerSample(2)
+                        wFormatTag = int.from_bytes(fmt[0:2], 'little')
+                        channels = int.from_bytes(fmt[2:4], 'little')
+                        sample_rate = int.from_bytes(fmt[4:8], 'little')
+                        # avg = int.from_bytes(fmt[8:12], 'little')
+                        # blockAlign = int.from_bytes(fmt[12:14], 'little')
+                        bits_per_sample = int.from_bytes(fmt[14:16], 'little')
+                        # 仅支持 PCM(1) 与 IEEE float(3)
+                        if wFormatTag not in (1, 3):
+                            logger.warning('[DJ] WAV 非PCM/Float格式: %s', wFormatTag)
+                        fmt_found = True
+                    else:
+                        # 跳过异常 fmt
+                        fmt_found = False
+                elif chunk_id == b'data':
+                    data_size = chunk_size
+                    # 跳过读取数据
+                    f.seek(chunk_size, 1)
+                else:
+                    # 跳过其他 chunk（fact/list 等）
+                    f.seek(chunk_size, 1)
+                # chunk 对齐到偶数字节
+                if (chunk_size % 2) == 1:
+                    f.seek(1, 1)
+            if not fmt_found or data_size is None or not sample_rate or not channels or not bits_per_sample:
+                return 0.0
+            bytes_per_sample = max(1, bits_per_sample // 8)
+            total_frames = data_size // (bytes_per_sample * channels)
+            duration = total_frames / float(sample_rate)
+            return float(duration)
+    except Exception:
+        logger.exception('[DJ] 读取 WAV 时长失败')
+        return 0.0
+
+def _build_subtitles_from_zh(zh_text: str, duration: float) -> List[Dict]:
+    if not zh_text:
+        return []
+    text = (zh_text or '').strip()
+    # 按标点切句
+    parts: List[str] = []
+    buf = ''
+    punct = set('，,。.!！？?；、')
+    for ch in text:
+        buf += ch
+        if ch in punct:
+            seg = buf.strip()
+            if seg:
+                parts.append(seg)
+            buf = ''
+    if buf.strip():
+        parts.append(buf.strip())
+
+    # 若过长的句子，继续按固定长度切块，避免一次性显示
+    MAX_CHARS = 14
+    def _charlen(s: str) -> int:
+        return len(re.sub(r"[\s，,。.!！？?；、]", "", s))
+    refined: List[str] = []
+    for p in parts:
+        clean = re.sub(r"[，,。.!！？?；、]", "", p)
+        if len(clean) > MAX_CHARS:
+            for i in range(0, len(clean), MAX_CHARS):
+                refined.append(clean[i:i+MAX_CHARS])
+        else:
+            refined.append(p)
+
+    if not refined:
+        refined = [text]
+
+    # 基础时长：每字0.5s
+    per_char = 0.5
+    base = [max(0.6, _charlen(s) * per_char) for s in refined]
+    total_base = sum(base) or 1.0
+    target_total = duration if (duration and duration > 0) else total_base
+    scale = target_total / total_base
+    # 最小时长下限+二次归一
+    first = [b * scale for b in base]
+    min_floor = min(0.9, target_total / max(1, len(refined) * 1.8))
+    floored = [max(min_floor, d) for d in first]
+    sum_floor = sum(floored) or 1.0
+    scale2 = target_total / sum_floor
+    final = [d * scale2 for d in floored]
+
+    # 生成字幕（前端直接播放时消费）
+    subs: List[Dict] = []
+    acc = 0.0
+    for i, s in enumerate(refined):
+        start = acc
+        dur = final[i]
+        acc += dur
+        end = target_total if i == len(refined) - 1 else min(target_total, acc)
+        # 展示用去标点
+        display = re.sub(r"[，,。.!！？?；、\\]", "", s).strip()
+        subs.append({
+            "text": display,
+            "start_time": round(start, 3),
+            "end_time": round(max(start + 0.2, end), 3)
+        })
+    return subs 

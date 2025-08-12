@@ -344,6 +344,7 @@ export interface DigitalJiagengChatRequest {
     output_language: LanguageType
     voice_gender: 'male' | 'female'
     speaking_speed: number
+    show_subtitles: boolean
   }
 }
 
@@ -353,6 +354,7 @@ export interface DigitalJiagengChatResponse {
   emotion: string
   confidence: number
   processing_time: number
+  subtitle_text?: string
   subtitles: Array<{
     text: string
     start_time: number  // 开始时间(秒)
@@ -362,71 +364,26 @@ export interface DigitalJiagengChatResponse {
 
 // 数字嘉庚API
 export const digitalJiagengAPI = {
-  // 与嘉庚对话
+  // 与嘉庚对话（真实后端）
   chatWithJiageng: async (data: DigitalJiagengChatRequest): Promise<ApiResponse<DigitalJiagengChatResponse>> => {
-    // 模拟不同的嘉庚回复
-    const jiagengResponses = data.settings.enable_role_play ? [
-      "教育是立国之本，兴学育人是我毕生的追求。",
-      "诚毅二字，是做人做事的根本。诚以待人，毅以处事。",
-      "爱国不分先后，只要是中华儿女，都应该为国家贡献力量。",
-      "办学如种树，需要长期坚持，不可急功近利。",
-      "华侨虽然身在海外，但心系祖国，这是我们的根。",
-      "知识改变命运，教育成就未来，这是我坚信的道理。"
-    ] : [
-      "您好！我是AI助手，很高兴为您服务。",
-      "请问有什么可以帮助您的吗？",
-      "我理解您的问题，让我为您详细解答。",
-      "感谢您的提问，这确实是一个很好的问题。"
-    ]
+    const formData = new FormData()
+    if (data.audio_file) formData.append('audio_file', data.audio_file)
+    if (data.text_input) formData.append('text_input', data.text_input)
+    formData.append('enable_role_play', String(data.settings.enable_role_play))
+    formData.append('input_language', data.settings.input_language)
+    formData.append('output_language', data.settings.output_language)
+    formData.append('voice_gender', data.settings.voice_gender)
+    formData.append('speaking_speed', String(data.settings.speaking_speed))
+    formData.append('show_subtitles', String(data.settings.show_subtitles))
 
-    const response = jiagengResponses[Math.floor(Math.random() * jiagengResponses.length)]
-    
-    // 生成字幕时间戳（模拟语音节奏）
-    const sentences = response.split(/[。！？]/).filter(s => s.trim().length > 0)
-    let currentTime = 0
-    const subtitles = sentences.map((sentence, index) => {
-      const text = sentence + (index < sentences.length - 1 ? '。' : '')
-      const duration = (text.length * 0.2) + Math.random() * 0.5 // 根据文字长度估算说话时间
-      const startTime = currentTime
-      const endTime = currentTime + duration
-      currentTime = endTime + 0.3 // 句间停顿0.3秒
-      
-      return {
-        text,
-        start_time: Math.round(startTime * 10) / 10, // 保留1位小数
-        end_time: Math.round(endTime * 10) / 10
-      }
+    return api.post('/digital-jiageng/chat', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     })
-
-    return mockApiCall<DigitalJiagengChatResponse>({
-      response_text: response,
-      response_audio_url: '/mock/jiageng_response.wav',
-      emotion: data.settings.enable_role_play ? '睿智' : '友好',
-      confidence: Math.random() * 0.2 + 0.8, // 0.8-1.0
-      processing_time: Math.random() * 3 + 2, // 2-5秒
-      subtitles
-    }, 2000) // 2秒模拟处理时间
   },
 
-  // 获取嘉庚信息
+  // 获取嘉庚信息（真实后端）
   getJiagengInfo: async (): Promise<ApiResponse<any>> => {
-    return mockApiCall({
-      name: "陈嘉庚",
-      birth_year: 1874,
-      death_year: 1961,
-      titles: ["华侨领袖", "企业家", "教育家"],
-      achievements: [
-        "创办厦门大学",
-        "创办集美学校",
-        "南洋华侨抗日救国的领导者",
-        "被誉为华侨旗帜、民族光辉"
-      ],
-      famous_quotes: [
-        "诚毅二字乃人生立身处世之道",
-        "教育为立国之本",
-        "宁可变卖大厦，也要支持教育"
-      ]
-    })
+    return api.get('/digital-jiageng/info')
   }
 }
 

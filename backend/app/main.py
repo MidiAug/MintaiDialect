@@ -8,12 +8,46 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import os
 from pathlib import Path
+import logging
+import sys
 
 # 导入路由模块
 from app.routers import asr_tts, speech_translation, voice_interaction, voice_cloning, digital_jiageng
 from app.core.config import settings
 
 # 创建FastAPI应用实例
+def _setup_logging():
+    """确保自定义模块日志可见。
+    - 将root logger设为DEBUG
+    - 若无stdout的StreamHandler则添加一个
+    - 指定关键模块logger为DEBUG
+    """
+    root = logging.getLogger()
+    # 全局改为 INFO，避免第三方库的 DEBUG 噪音
+    root.setLevel(logging.INFO)
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setLevel(logging.DEBUG)
+        sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        root.addHandler(sh)
+    # 我们关心的模块设为 INFO（关键步骤仍会打印）
+    for name in [
+        "app.routers.digital_jiageng",
+        "app.services.asr_service",
+        "app.services.tts_service",
+        "app.services.llm_service",
+    ]:
+        logging.getLogger(name).setLevel(logging.INFO)
+
+    # 第三方库降噪
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+_setup_logging()
+
 app = FastAPI(
     title="闽台方言大模型API",
     description="闽台方言人工智能语音处理系统后端API",

@@ -11,7 +11,6 @@ import {
   Switch,
   Avatar,
   Tag,
-  Progress,
   Divider
 } from 'antd'
 import { 
@@ -55,9 +54,7 @@ const DigitalJiagengPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false)
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null)
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('')
-  const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0)
   const [recordingTime, setRecordingTime] = useState(0)
-  const [audioLevel, setAudioLevel] = useState(0)
   
   // 设置状态
   const [settings, setSettings] = useState<JiagengSettings>({
@@ -66,17 +63,19 @@ const DigitalJiagengPage: React.FC = () => {
     outputLanguage: LanguageType.MINNAN,
     voiceGender: 'male',
     speakingSpeed: 1.0,
-    showSubtitles: false
+    showSubtitles: true
   })
 
   // 录音相关
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const recordingTimerRef = useRef<number | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const lastSubtitleRef = useRef<string>('')
+  // 字幕调试开关与节流
+  const DEBUG_SUBS = true
+  const lastLogTimeRef = useRef<number>(0)
 
 
   // 语言选项
@@ -94,14 +93,7 @@ const DigitalJiagengPage: React.FC = () => {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current)
       }
-      // 清理动画帧
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-      // 清理音频上下文
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
-      }
+      // 无需清理动画帧与音频上下文
       // 清理音频播放
       if (currentAudioRef.current) {
         currentAudioRef.current.pause()
@@ -112,32 +104,11 @@ const DigitalJiagengPage: React.FC = () => {
 
 
 
-  // 初始化音频上下文
+  // 初始化录音权限
   const initAudioContext = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      audioContextRef.current = new AudioContext()
-      analyserRef.current = audioContextRef.current.createAnalyser()
-      
-      const source = audioContextRef.current.createMediaStreamSource(stream)
-      source.connect(analyserRef.current)
-      
-      analyserRef.current.fftSize = 256
-      const bufferLength = analyserRef.current.frequencyBinCount
-      const dataArray = new Uint8Array(bufferLength)
-      
-      const updateAudioLevel = () => {
-        if (analyserRef.current && isRecording) {
-          analyserRef.current.getByteFrequencyData(dataArray)
-          const average = dataArray.reduce((a, b) => a + b) / bufferLength
-          setAudioLevel(average)
-          animationFrameRef.current = requestAnimationFrame(updateAudioLevel)
-        }
-      }
-      
-      if (isRecording) {
-        updateAudioLevel()
-      }
+      streamRef.current = stream
       
       return stream
     } catch (error) {
@@ -145,6 +116,284 @@ const DigitalJiagengPage: React.FC = () => {
       message.error('无法获取麦克风权限，请检查浏览器设置')
       return null
     }
+  }
+
+  // 将任意音频 Blob 在浏览器端转换为 16kHz 单声道 WAV，避免后端依赖系统 ffmpeg
+  const convertToWav = async (blob: Blob): Promise<Blob> => {
+    const arrayBuffer = await blob.arrayBuffer()
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext
+    const audioCtx = new AudioCtx()
+    const decoded: AudioBuffer = await new Promise((resolve, reject) => {
+      // 复制一份 ArrayBuffer 给 decodeAudioData，避免部分浏览器视为已消耗
+      const copy = arrayBuffer.slice(0)
+      audioCtx.decodeAudioData(copy, resolve, reject)
+    })
+    // 释放解码用的 AudioContext，避免资源泄露
+    if ((audioCtx as any).close) {
+      try { await (audioCtx as any).close() } catch {}
+    }
+    const targetSampleRate = 16000
+    const duration = decoded.duration
+    const OfflineCtx = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext
+    const offline: OfflineAudioContext = new OfflineCtx(1, Math.ceil(targetSampleRate * duration), targetSampleRate)
+    const src = offline.createBufferSource()
+    // 合成为单声道
+    const monoBuffer = offline.createBuffer(1, decoded.length, decoded.sampleRate)
+    const ch0 = new Float32Array(decoded.length)
+    decoded.copyFromChannel(ch0, 0)
+    if (decoded.numberOfChannels > 1) {
+      const ch1 = new Float32Array(decoded.length)
+      decoded.copyFromChannel(ch1, 1)
+      for (let i = 0; i < ch0.length; i++) ch0[i] = (ch0[i] + ch1[i]) / 2
+    }
+    monoBuffer.copyToChannel(ch0, 0)
+    src.buffer = monoBuffer
+    src.connect(offline.destination)
+    src.start()
+    const rendered = await offline.startRendering()
+    const pcm = rendered.getChannelData(0)
+    // 写 WAV 头 + PCM16LE 数据
+    const wavBuffer = new ArrayBuffer(44 + pcm.length * 2)
+    const view = new DataView(wavBuffer)
+    const writeString = (offset: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)) }
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + pcm.length * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, targetSampleRate, true)
+    view.setUint32(28, targetSampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, pcm.length * 2, true)
+    let offset = 44
+    for (let i = 0; i < pcm.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, pcm[i]))
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    }
+    return new Blob([view], { type: 'audio/wav' })
+  }
+
+  // 基于标点/空格逐句切分字幕：按音频总时长等分
+  const generateSubtitles = (rawText: string, durationSec: number) => {
+    const text = (rawText || '').trim()
+    if (!text) return [] as Array<{ text: string; start_time: number; end_time: number }>
+
+    // 1) 优先：若原句使用空格分隔语块，则直接按空格切分
+    const spaceParts = text.split(/\s+/).filter(Boolean)
+    let segs: string[] = []
+    if (spaceParts.length >= 3) {
+      segs = spaceParts
+    } else {
+      // 2) 其次：按标点切句
+      const punctSet = new Set(['，', ',', '。', '.', '！', '!', '？', '?'])
+      const sentences: string[] = []
+      let buf = ''
+      for (const ch of text) {
+        buf += ch
+        if (punctSet.has(ch)) {
+          const seg = buf.trim()
+          if (seg) sentences.push(seg)
+          buf = ''
+        }
+      }
+      if (buf.trim()) sentences.push(buf.trim())
+      segs = sentences.filter(s => s && s.trim())
+      // 3) 再次：若仍只有一句，按空格切词（即使只有少量空格也分段）
+      if (segs.length <= 1 && spaceParts.length > 1) {
+        segs = spaceParts
+      }
+      // 4) 最后：若仍只有一句，按固定字数切块
+      if (segs.length <= 1) {
+        const noPunct = stripPunctForDisplay(text)
+        const MAX_CHARS = 12
+        const tmp: string[] = []
+        for (let i = 0; i < noPunct.length; i += MAX_CHARS) {
+          tmp.push(noPunct.slice(i, i + MAX_CHARS))
+        }
+        segs = tmp
+      }
+    }
+
+    // 显示时去标点
+    const displaySegs = segs.map(s => stripPunctForDisplay(s))
+    const n = Math.max(1, displaySegs.length)
+    const total = (isFinite(durationSec) && durationSec > 0) ? durationSec : n
+    const slot = total / n
+
+    const out: Array<{ text: string; start_time: number; end_time: number }> = []
+    for (let i = 0; i < n; i++) {
+      const start = i * slot
+      const end = (i === n - 1) ? total : (i + 1) * slot
+      out.push({ text: displaySegs[i] || '', start_time: start, end_time: end })
+    }
+    if (DEBUG_SUBS) console.debug('[SUB] simple subtitles', out.map(r => ({ t: r.text, s: r.start_time.toFixed(2), e: r.end_time.toFixed(2) })))
+    return out
+  }
+
+  // 显示用：去除标点符号
+  const stripPunctForDisplay = (s: string) =>
+    (s || '')
+      // 去掉潜在的标签与转义
+      .replace(/^\s*(zh|tlp)\s*[:：\\/\-]*\s*/i, '')
+      .replace(/\\/g, '')
+      .replace(/[，,。\.！!？?、；;：:（）()【】\[\]“”‘’'"…—\-]/g, '')
+      .trim()
+
+  // 清洗混合文本：保留中文及常用标点；去除 tlp 行、移除 zh 标签、去掉反斜杠/拉丁字母
+  const normalizeZhSource = (raw: string) => {
+    let s = (raw || '').replace(/```[\s\S]*?```/g, '')
+    // 改写带标签的行：保留 zh 行内容，移除行首 zh: 前缀；删除 tlp 行
+    s = s.replace(/(^|\n)\s*zh\s*[:：\\/\-]*\s*/gi, '$1')
+    s = s.replace(/(^|\n)\s*tlp\s*[:：\\/\-]*.*(?=\n|$)/gi, '$1')
+    // 去掉 JSON 键名
+    s = s.replace(/"?(zh|tlp)"?\s*:\s*/gi, '')
+    // 去掉反斜杠与拉丁字符（避免把台罗带进来）
+    s = s.replace(/\\/g, '')
+    s = s.replace(/[A-Za-z0-9\u00C0-\u02AF\u1E00-\u1EFF]/g, '')
+    // 仅保留中文与常用标点和空白
+    s = s.replace(/[^\u4e00-\u9fff，,。\.！!？?、；;：:\s]/g, '')
+    return s.replace(/\s+/g, ' ').trim()
+  }
+
+  // 解码音频并计算静音边界（简单能量法）
+  const analyzeAudioSilences = async (audioUrl: string) => {
+    try {
+      const res = await fetch(audioUrl)
+      const arr = await res.arrayBuffer()
+      const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext
+      const ctx = new AudioCtx()
+      const buf: AudioBuffer = await new Promise((resolve, reject) => {
+        ctx.decodeAudioData(arr.slice(0), resolve, reject)
+      })
+      const channel = buf.getChannelData(0)
+      const sampleRate = buf.sampleRate
+      const frameMs = 20
+      const hopMs = 10
+      const frameSize = Math.max(1, Math.floor(sampleRate * (frameMs / 1000)))
+      const hopSize = Math.max(1, Math.floor(sampleRate * (hopMs / 1000)))
+      const rms: number[] = []
+      for (let i = 0; i + frameSize <= channel.length; i += hopSize) {
+        let sum = 0
+        for (let j = 0; j < frameSize; j++) {
+          const s = channel[i + j]
+          sum += s * s
+        }
+        rms.push(Math.sqrt(sum / frameSize))
+      }
+      // 动态阈值：取35分位作为静音阈值上限（更容易识别静音）
+      const sorted = [...rms].sort((a, b) => a - b)
+      const q = sorted[Math.floor(sorted.length * 0.35)] || 0.01
+      const threshold = Math.max(0.005, Math.min(0.03, q))
+      // 语音起点估计：高于阈值一段时间即视为起声
+      const minVoiceMs = 120
+      const minVoiceFrames = Math.max(1, Math.floor(minVoiceMs / hopMs))
+      let voiceRun = 0
+      let onsetTime = 0
+      let onsetFound = false
+      const minSilenceMs = 180
+      const minSilenceFrames = Math.max(1, Math.floor(minSilenceMs / hopMs))
+      const boundaryTimes: number[] = []
+      let run = 0
+      for (let idx = 0; idx < rms.length; idx++) {
+        // 静音累计
+        if (rms[idx] < threshold) run++; else run = 0
+        // 起声累计（使用稍高阈值）
+        if (!onsetFound) {
+          if (rms[idx] >= Math.min(0.08, threshold * 1.6)) {
+            voiceRun++
+            if (voiceRun >= minVoiceFrames) {
+              onsetFound = true
+              onsetTime = Math.max(0, ((idx - minVoiceFrames) * hopMs) / 1000)
+            }
+          } else {
+            voiceRun = 0
+          }
+        }
+        if (run === minSilenceFrames) {
+          const time = ((idx - Math.floor(minSilenceFrames / 2)) * hopMs) / 1000
+          if (time > 0) boundaryTimes.push(time)
+        }
+      }
+      if (DEBUG_SUBS) {
+        console.debug('[SUB] analyze', {
+          sampleRate,
+          frames: rms.length,
+          q25: q.toFixed(5),
+          threshold: threshold.toFixed(5),
+          boundaryTimes: boundaryTimes.map(t => t.toFixed(2)),
+          duration: buf.duration.toFixed(2),
+          onset: onsetFound ? onsetTime.toFixed(2) : 'n/a'
+        })
+      }
+      // 关闭上下文
+      if ((ctx as any).close) {
+        try { await (ctx as any).close() } catch {}
+      }
+      return { boundaryTimes, duration: buf.duration, onsetTime: onsetFound ? onsetTime : 0 }
+    } catch (e) {
+      if (DEBUG_SUBS) console.debug('[SUB] analyze failed', e)
+      return { boundaryTimes: [] as number[], duration: 0, onsetTime: 0 }
+    }
+  }
+
+  // 根据静音边界拟合句子区间
+  const refineSubtitlesWithAudio = async (
+    audioUrl: string,
+    rawText: string,
+    fallback: Array<{ text: string; start_time: number; end_time: number }>
+  ) => {
+    const { boundaryTimes, duration, onsetTime } = await analyzeAudioSilences(audioUrl)
+    // 使用 fallback 的分段数量作为目标，避免因文本异常导致重分段数量偏差
+    const n = Math.max(1, fallback.length)
+    if (n === 0) return fallback
+
+    // 需要 boundaryTimes 数量=句子数-1 才可直接拟合
+    const eps = 0.15
+    const bt = boundaryTimes.filter(t => t > eps && t < (duration - eps)).sort((a, b) => a - b)
+    const shift = Math.min(Math.max(0, onsetTime), 0.15) // 更保守的全局提前校准
+    const qualityOk = duration > 0 && bt.length >= n - 1 && n >= 2
+    if (qualityOk) {
+      // 取前 N-1 个边界
+      const cut = bt.slice(0, n - 1)
+      const results: Array<{ text: string; start_time: number; end_time: number }> = []
+      let start = 0
+      for (let i = 0; i < n; i++) {
+        const end = i === n - 1 ? duration : cut[i]
+        const adjStart = Math.max(0, start - shift)
+        const adjEnd = Math.max(adjStart + 0.2, end - shift)
+        results.push({ text: fallback[i]?.text || '', start_time: adjStart, end_time: adjEnd })
+        start = end
+      }
+      // 健壮性检查：时间单调递增、相邻不重叠、最小时长
+      const MIN_DUR = 0.25
+      let monotonic = true
+      for (let i = 0; i < results.length; i++) {
+        const seg = results[i]
+        if (!(seg.end_time - seg.start_time >= MIN_DUR)) { monotonic = false; break }
+        if (i > 0 && !(seg.start_time >= results[i-1].end_time - 1e-3)) { monotonic = false; break }
+      }
+      if (!monotonic) {
+        if (DEBUG_SUBS) console.debug('[SUB] refine rejected by sanity check; fallback used')
+        return fallback
+      }
+      if (DEBUG_SUBS) console.debug('[SUB] refined by audio', results.map(r => ({ t: r.text, s: r.start_time.toFixed(2), e: r.end_time.toFixed(2) })))
+      return results
+    }
+    // 否则回退到原有按字符权重的分配
+    if (DEBUG_SUBS) console.debug('[SUB] refine fallback, bt=', bt.length, 'segments=', n)
+    if (shift > 0 && n >= 2) {
+      const shifted = fallback.map(seg => {
+        const ns = Math.max(0, seg.start_time - shift)
+        const ne = Math.max(ns + 0.2, seg.end_time - shift)
+        return { ...seg, start_time: ns, end_time: ne }
+      })
+      return shifted
+    }
+    return fallback
   }
 
   // 开始录音
@@ -156,7 +405,22 @@ const DigitalJiagengPage: React.FC = () => {
       if (!stream) return
 
       recordingChunksRef.current = []
-      mediaRecorderRef.current = new MediaRecorder(stream)
+      // 选择浏览器支持的音频编码格式（多数浏览器为 webm/opus 或 ogg/opus）
+      let preferredMimeType = ''
+      if ((window as any).MediaRecorder && (MediaRecorder as any).isTypeSupported) {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          preferredMimeType = 'audio/webm;codecs=opus'
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          preferredMimeType = 'audio/webm'
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          preferredMimeType = 'audio/ogg;codecs=opus'
+        }
+      }
+
+      mediaRecorderRef.current = new MediaRecorder(
+        streamRef.current as MediaStream,
+        preferredMimeType ? { mimeType: preferredMimeType } : undefined
+      )
       
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -174,7 +438,7 @@ const DigitalJiagengPage: React.FC = () => {
       }
       
       // 录音计时
-      recordingTimerRef.current = setInterval(() => {
+      recordingTimerRef.current = window.setInterval(() => {
         setRecordingTime(prev => prev + 1)
       }, 1000)
 
@@ -189,30 +453,36 @@ const DigitalJiagengPage: React.FC = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
-      setAudioLevel(0)
       
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current)
       }
       
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(recordingChunksRef.current, { type: 'audio/wav' })
-        handleAudioMessage(audioBlob)
+      mediaRecorderRef.current.onstop = async () => {
+        try {
+          const rawType = mediaRecorderRef.current?.mimeType || 'audio/webm'
+          const rawBlob = new Blob(recordingChunksRef.current, { type: rawType })
+          const wavBlob = await convertToWav(rawBlob)
+          const wavFile = new File([wavBlob], 'recording.wav', { type: 'audio/wav' })
+          handleAudioMessage(wavFile)
+        } catch (err) {
+          console.error('录音转WAV失败，回退原始格式:', err)
+          const fallbackBlob = new Blob(recordingChunksRef.current, { type: 'audio/webm' })
+          const fallbackFile = new File([fallbackBlob], 'recording.webm', { type: 'audio/webm' })
+          handleAudioMessage(fallbackFile)
+        }
       }
 
       // 停止所有音频轨道
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
       }
     }
   }
 
-  // 处理音频消息
-  const handleAudioMessage = async (audioBlob: Blob) => {
+  // 处理音频消息（统一使用 File 类型，便于后端读取文件信息）
+  const handleAudioMessage = async (audioFile: File) => {
     if (recordingTime < 1) {
       message.warning('录音时间太短，请重新录制')
       return
@@ -222,41 +492,49 @@ const DigitalJiagengPage: React.FC = () => {
       id: Date.now().toString(),
       type: 'user',
       content: '[语音消息]',
-      audioUrl: URL.createObjectURL(audioBlob),
-      audioBlob,
+      audioUrl: URL.createObjectURL(audioFile),
+      audioBlob: audioFile,
       timestamp: new Date().toLocaleTimeString()
     }
 
     setMessages(prev => [...prev, userMessage])
     setIsProcessing(true)
+    console.debug('[DJ-UI] start handleAudioMessage, settings.showSubtitles=', settings.showSubtitles)
 
     try {
       const response = await digitalJiagengAPI.chatWithJiageng({
-        audio_file: audioBlob,
-        settings: {
+        audio_file: audioFile,
+        settings: ({
           enable_role_play: settings.enableRolePlay,
           input_language: settings.inputLanguage,
           output_language: settings.outputLanguage,
           voice_gender: settings.voiceGender,
-          speaking_speed: settings.speakingSpeed
-        }
+          speaking_speed: settings.speakingSpeed,
+          show_subtitles: settings.showSubtitles
+        } as any)
       })
 
       if (response.success) {
         const jiagengMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           type: 'jiageng',
-          content: response.data.response_text,
+          // 仅在开启字幕时使用中文字幕源；否则不提供内容用于字幕生成
+          content: settings.showSubtitles ? (((response.data as any)?.subtitle_text) || '') : '',
           audioUrl: response.data.response_audio_url,
           timestamp: new Date().toLocaleTimeString(),
-          subtitles: response.data.subtitles
+          // 优先使用后端返回的精准字幕（若有）
+          subtitles: (settings.showSubtitles && (response.data as any)?.subtitles) || []
         }
 
         setMessages(prev => [...prev, jiagengMessage])
         
         // 自动播放嘉庚的回复
         if (response.data.response_audio_url) {
-          playAudio(jiagengMessage.id, response.data.response_audio_url)
+          console.debug('[DJ-UI] play reply audio, textLen=', (jiagengMessage.content||'').length, 'subOn=', settings.showSubtitles)
+          playAudio(jiagengMessage.id, response.data.response_audio_url, settings.showSubtitles ? jiagengMessage.content : '')
+        } else {
+          // 后端未返回音频：保持文字展示，做温和提示即可，避免被误判为失败
+          message.info('本次未生成音频，已显示文字')
         }
       } else {
         message.error(response.message || '对话处理失败')
@@ -270,7 +548,8 @@ const DigitalJiagengPage: React.FC = () => {
   }
 
   // 播放音频
-  const playAudio = (messageId: string, audioUrl: string) => {
+  const playAudio = (messageId: string, audioUrl: string, contentText?: string) => {
+    console.debug('[DJ-UI] playAudio called', { messageId, audioUrl, showSubtitles: settings.showSubtitles })
     if (currentlyPlaying === messageId) {
       // 停止播放
       if (currentAudioRef.current) {
@@ -279,13 +558,14 @@ const DigitalJiagengPage: React.FC = () => {
       }
       setCurrentlyPlaying(null)
       setCurrentSubtitleText('')
-      setAudioCurrentTime(0)
       setMessages(prev => prev.map(msg => 
         msg.id === messageId ? { ...msg, isPlaying: false } : msg
       ))
     } else {
       // 开始播放
       setCurrentlyPlaying(messageId)
+      setCurrentSubtitleText('')
+      lastSubtitleRef.current = ''
       setMessages(prev => prev.map(msg => 
         msg.id === messageId ? { ...msg, isPlaying: true } : { ...msg, isPlaying: false }
       ))
@@ -293,34 +573,73 @@ const DigitalJiagengPage: React.FC = () => {
       const audio = new Audio(audioUrl)
       currentAudioRef.current = audio
 
-      // 获取消息的字幕数据
+      // 获取消息的字幕数据（若无则在元数据加载后生成）
       const message = messages.find(msg => msg.id === messageId)
-      const subtitles = message?.subtitles || []
+      let subtitles = message?.subtitles || []
 
-      // 监听播放时间更新
+      audio.onloadedmetadata = () => {
+        console.debug('[DJ-UI] audio metadata loaded, duration=', audio.duration, 'existingSubtitles=', subtitles?.length || 0)
+        const rawTextSource = contentText ?? message?.content ?? ''
+        const textSource = normalizeZhSource(rawTextSource)
+        if (textSource) {
+          const simple = generateSubtitles(textSource, audio.duration)
+          subtitles = simple
+          setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: simple } : m))
+          // 使用音频静音边界拟合并全局提前校准首句，降低前段延迟
+          refineSubtitlesWithAudio(audioUrl, textSource, simple).then(refined => {
+            subtitles = refined
+            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: refined } : m))
+          }).catch(() => {})
+        }
+      }
+      // 兜底：若用户极快触发播放，先用一个假设时长生成，后续 onloadedmetadata 再覆盖
+      if ((!subtitles || subtitles.length === 0) && isNaN(audio.duration) && (contentText ?? message?.content ?? '')) {
+        const temp = generateSubtitles(normalizeZhSource(contentText ?? message?.content ?? ''), 4)
+        subtitles = temp
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: temp } : m))
+        console.debug('[DJ-UI] fallback subtitles len=', temp.length, 'first=', temp[0]?.text)
+      }
+
       audio.ontimeupdate = () => {
         const currentTime = audio.currentTime
-        setAudioCurrentTime(currentTime)
-        
-        // 根据当前时间找到对应的字幕
-        const currentSubtitle = subtitles.find(
-          subtitle => currentTime >= subtitle.start_time && currentTime <= subtitle.end_time
+        const epsilon = 0.05
+        const seg = subtitles.find(
+          s => currentTime >= Math.max(0, s.start_time - epsilon) && currentTime <= s.end_time + epsilon
         )
-        
-        setCurrentSubtitleText(currentSubtitle?.text || '')
+        const raw = seg?.text || ''
+        const show = stripPunctForDisplay(raw)
+        if (show !== lastSubtitleRef.current) {
+          lastSubtitleRef.current = show
+          setCurrentSubtitleText(show)
+          const now = performance.now()
+          if (DEBUG_SUBS && (now - lastLogTimeRef.current) > 200) {
+            lastLogTimeRef.current = now
+            const idx = subtitles.findIndex(s => s === seg)
+            console.debug('[SUB] ontime', {
+              t: currentTime.toFixed(2),
+              idx,
+              seg: seg ? { s: seg.start_time.toFixed(2), e: seg.end_time.toFixed(2), raw, show } : null
+            })
+          }
+        }
       }
 
       audio.onended = () => {
         setCurrentlyPlaying(null)
         setCurrentSubtitleText('')
-        setAudioCurrentTime(0)
         currentAudioRef.current = null
         setMessages(prev => prev.map(msg => 
           msg.id === messageId ? { ...msg, isPlaying: false } : msg
         ))
+        console.debug('[DJ-UI] audio ended')
       }
 
+      // 若已有音频在播，先停止
+      if (currentAudioRef.current && currentAudioRef.current !== audio) {
+        try { currentAudioRef.current.pause() } catch {}
+      }
       audio.play()
+      console.debug('[DJ-UI] audio.play invoked')
     }
   }
 
@@ -346,6 +665,18 @@ const DigitalJiagengPage: React.FC = () => {
         @keyframes thinking {
           0%, 80%, 100% { transform: scale(0); }
           40% { transform: scale(1); }
+        }
+
+        @keyframes ripple {
+          0% { transform: scale(1); opacity: 0.6; }
+          70% { transform: scale(1.6); opacity: 0.2; }
+          100% { transform: scale(2.2); opacity: 0; }
+        }
+
+        @keyframes micGlow {
+          0%   { box-shadow: 0 8px 24px rgba(255,77,79,0.15), 0 0 0 0 rgba(255,77,79,0.0); }
+          50%  { box-shadow: 0 8px 24px rgba(255,77,79,0.28), 0 0 0 6px rgba(255,77,79,0.18); }
+          100% { box-shadow: 0 8px 24px rgba(255,77,79,0.15), 0 0 0 0 rgba(255,77,79,0.0); }
         }
       `}</style>
       
@@ -446,30 +777,32 @@ const DigitalJiagengPage: React.FC = () => {
         <Col xs={24} lg={12}>
           <Card title="语音通话" className="mb-16">
             {/* 通话界面 */}
-            <div 
-              style={{ 
-                height: 500, 
+              <div 
+                style={{ 
+                height: 520, 
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
+                justifyContent: 'flex-start',
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 borderRadius: '12px',
                 position: 'relative',
                 padding: '40px 20px'
               }}
             >
-              {/* 嘉庚头像 */}
-              <div style={{ marginBottom: '40px', textAlign: 'center' }}>
-                <Avatar 
-                  size={120} 
-                  icon={<UserOutlined />} 
-                  style={{ 
-                    backgroundColor: '#ffffff',
-                    color: '#1890ff',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
-                  }} 
-                />
+              {/* 顶部：头像固定区（固定高度，避免位移） */}
+              <div style={{ height: 260, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                <div style={{ position: 'relative', display: 'inline-block', transform: 'translateZ(0)' }}>
+                  <Avatar 
+                    size={120} 
+                    icon={<UserOutlined />} 
+                    style={{ 
+                      backgroundColor: '#ffffff',
+                      color: '#1890ff',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+                    }} 
+                  />
+                </div>
                 <div style={{ marginTop: '16px' }}>
                   <Text style={{ color: '#ffffff', fontSize: '18px', fontWeight: 'bold' }}>
                     {settings.enableRolePlay ? '陈嘉庚先生' : 'AI助手'}
@@ -477,117 +810,91 @@ const DigitalJiagengPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 状态显示区域 */}
-              <div style={{ minHeight: '80px', textAlign: 'center', marginBottom: '40px' }}>
+              {/* 下部：状态/操作区（固定高度，避免位移） */}
+              <div style={{ height: 180, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                {/* 思考 */}
                 {isProcessing && (
-                  <div>
-                    {/* 思考动画 */}
+                  <div style={{ textAlign: 'center' }}>
                     <div style={{ 
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      height: '60px',
-                      gap: '8px',
-                      marginBottom: '12px'
+                      display: 'flex', justifyContent: 'center', alignItems: 'center',
+                      height: '60px', gap: '8px', marginBottom: '12px'
                     }}>
                       {[...Array(3)].map((_, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            width: '12px',
-                            height: '12px',
-                            backgroundColor: '#ffffff',
-                            borderRadius: '50%',
-                            animation: 'thinking 1.4s ease-in-out infinite both',
-                            animationDelay: `${i * 0.16}s`
-                          }}
-                        />
+                        <div key={i} style={{ width: '12px', height: '12px', backgroundColor: '#ffffff', borderRadius: '50%', animation: 'thinking 1.4s ease-in-out infinite both', animationDelay: `${i * 0.16}s` }} />
                       ))}
                     </div>
-                    <div style={{ marginTop: '12px' }}>
-                      <Text style={{ color: '#ffffff', fontSize: '16px' }}>
-                        {settings.enableRolePlay ? '嘉庚正在思考...' : 'AI正在处理...'}
+
+                  </div>
+                )}
+
+                {/* 录音状态不在此处显示可视化 */}
+
+                {/* 播放动效 */}
+                {currentlyPlaying && !isRecording && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', height: '60px', gap: '4px', marginBottom: '12px' }}>
+                      {[...Array(10)].map((_, i) => (
+                        <div key={i} style={{ width: '6px', height: `${12 + (i % 3) * 8}px`, backgroundColor: '#ffffff', borderRadius: '3px', animation: 'waveform 1s ease-in-out infinite', animationDelay: `${i * 0.08}s`, opacity: 0.85 }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 操作按钮：仅空闲或录音时显示 */}
+                {!currentlyPlaying && !isProcessing && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Button
+                        type="primary" size="large" shape="circle" icon={<AudioOutlined />}
+                        onMouseDown={startRecording} onMouseUp={stopRecording}
+                        onTouchStart={startRecording} onTouchEnd={stopRecording}
+                        disabled={isProcessing}
+                        style={{
+                          width: '100px', height: '100px', fontSize: '32px',
+                          backgroundColor: '#ffffff',
+                          borderColor: isRecording ? '#ff4d4f' : '#ffffff',
+                          color: isRecording ? '#ff4d4f' : '#667eea',
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+                        }}
+                      />
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      <Text style={{ color: '#ffffff', fontSize: 14, opacity: 0.9 }}>
+                        {isRecording ? `录音中 ${recordingTime}s` : '按住说话'}
                       </Text>
                     </div>
-                  </div>
+                  </>
                 )}
+              </div>
 
-                {isRecording && (
-                  <div>
-                    {/* 声波可视化 */}
-                    <div style={{ 
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'flex-end',
-                      height: '60px',
-                      gap: '4px',
-                      marginBottom: '16px'
-                    }}>
-                      {[...Array(8)].map((_, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            width: '6px',
-                            height: `${Math.max(8, (audioLevel / 255) * 60 + Math.sin(Date.now() / 100 + i) * 10)}px`,
-                            backgroundColor: '#ffffff',
-                            borderRadius: '3px',
-                            animation: 'waveform 0.8s ease-in-out infinite',
-                            animationDelay: `${i * 0.1}s`,
-                            opacity: 0.7 + (audioLevel / 255) * 0.3
-                          }}
-                        />
-                      ))}
+              {/* 字幕浮层（播放时显示） */}
+              {(() => {
+                if (settings.showSubtitles && currentlyPlaying && currentSubtitleText) {
+                  console.debug('[DJ-UI] render subtitle overlay:', currentSubtitleText)
+                  return (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 18,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(0,0,0,0.45)',
+                        padding: '10px 16px',
+                        borderRadius: 18,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        maxWidth: '88%',
+                        zIndex: 5,
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 14, lineHeight: 1.4 }}>{currentSubtitleText}</Text>
                     </div>
-                    <Text style={{ color: '#ffffff', fontSize: '16px', fontWeight: '500' }}>
-                      录音中 {recordingTime}s
-                    </Text>
-                  </div>
-                )}
-
-                {!isProcessing && !isRecording && (
-                  <div>
-                    <Text style={{ color: '#ffffff', fontSize: '16px' }}>
-                      你可以开始说话
-                    </Text>
-                  </div>
-                )}
-              </div>
-
-              {/* 录音按钮 */}
-              <Button
-                type="primary"
-                size="large"
-                shape="circle"
-                icon={<AudioOutlined />}
-                onMouseDown={startRecording}
-                onMouseUp={stopRecording}
-                onTouchStart={startRecording}
-                onTouchEnd={stopRecording}
-                disabled={isProcessing}
-                style={{
-                  width: '100px',
-                  height: '100px',
-                  fontSize: '32px',
-                  backgroundColor: '#ffffff',
-                  borderColor: '#ffffff',
-                  color: '#667eea',
-                  transition: 'all 0.3s ease',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-                  ...(isRecording ? {
-                    transform: 'scale(1.1)',
-                    backgroundColor: '#ff4d4f',
-                    borderColor: '#ff4d4f',
-                    color: '#ffffff',
-                    boxShadow: `0 0 ${audioLevel / 5}px rgba(255,77,79,0.8)`
-                  } : {})
-                }}
-              />
-              
-              <div style={{ marginTop: '16px' }}>
-                <Text style={{ color: '#ffffff', fontSize: '14px' }}>
-                  {isRecording ? '松开结束录音' : '按住说话'}
-                </Text>
-              </div>
+                  )
+                }
+                // 无字幕时不再显示占位，避免“过早结束”的视觉误判
+                return null
+              })()}
 
               {/* 字幕开关 */}
               <div 
@@ -611,78 +918,7 @@ const DigitalJiagengPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 实时字幕显示区域 */}
-            {settings.showSubtitles && (
-              <div 
-                style={{ 
-                  marginTop: '16px',
-                  padding: '0',
-                  minHeight: '80px',
-                  textAlign: 'center',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {currentlyPlaying && currentSubtitleText ? (
-                  <div
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(0,0,0,0.8) 0%, rgba(40,40,40,0.8) 100%)',
-                      padding: '12px 20px',
-                      borderRadius: '25px',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      backdropFilter: 'blur(10px)',
-                      maxWidth: '90%',
-                      minHeight: '50px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    <Text 
-                      style={{ 
-                        color: '#ffffff', 
-                        fontSize: '16px',
-                        fontWeight: '400',
-                        lineHeight: '1.4',
-                        textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                        textAlign: 'center'
-                      }}
-                    >
-                      {currentSubtitleText}
-                    </Text>
-                  </div>
-                ) : isProcessing ? (
-                  <div
-                    style={{
-                      background: 'rgba(108, 117, 125, 0.3)',
-                      padding: '10px 16px',
-                      borderRadius: '20px',
-                      border: '1px solid rgba(255,255,255,0.1)'
-                    }}
-                  >
-                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px' }}>
-                      💭 {settings.enableRolePlay ? '嘉庚正在思考回复...' : 'AI正在思考回复...'}
-                    </Text>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      background: 'rgba(108, 117, 125, 0.2)',
-                      padding: '8px 16px',
-                      borderRadius: '16px',
-                      border: '1px dashed rgba(255,255,255,0.2)'
-                    }}
-                  >
-                    <Text style={{ color: 'rgba(100,100,100,0.8)', fontSize: '13px' }}>
-                      💬 字幕将在AI语音播放时显示
-                    </Text>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* 移除页面下方字幕组件，仅保留浮层 */}
           </Card>
         </Col>
 

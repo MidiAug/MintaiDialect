@@ -1,6 +1,11 @@
 from typing import Any, Dict, List
+import time
+import logging
 import httpx
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 async def chat_to_taibun(input_text: str, *, history: List[dict] | None = None) -> Dict[str, Any]:
@@ -15,52 +20,116 @@ async def chat_to_taibun(input_text: str, *, history: List[dict] | None = None) 
     # 优先使用外部自建 llm_service
     if settings.llm_service_url:
         last_exc: Exception | None = None
-        for _ in range(3):
+        for attempt in range(1, 4):
             try:
+                start_ts = time.monotonic()
                 async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
-                    payload = {
-                        "input": input_text,
-                        "history": history or [],
-                        "output_format": "tlp",
-                    }
-                    resp = await client.post(
-                        f"{settings.llm_service_url}/chat",
-                        json=payload,
-                        headers={
-                            "Authorization": f"Bearer {settings.provider_api_key}" if settings.provider_api_key else ""
-                        },
-                    )
-                    resp.raise_for_status()
-                    js = resp.json()
-                    return {
-                        "text": js.get("text") or (js.get("data") or {}).get("text"),
-                        "raw": js,
-                    }
+                    # 先尝试我们当前简单的 GET /chat?message= 接口
+                    try:
+                        logger.debug("[LLM] attempt=%d GET %s/chat msg_len=%d", attempt, settings.llm_service_url, len(input_text or ""))
+                        resp = await client.get(
+                            f"{settings.llm_service_url}/chat",
+                            params={"message": input_text},
+                            headers={
+                                "Authorization": f"Bearer {settings.provider_api_key}" if settings.provider_api_key else ""
+                            },
+                        )
+                        resp.raise_for_status()
+                        js = resp.json()
+                        dur = (time.monotonic() - start_ts) * 1000
+                        logger.info("[LLM] GET status=%d time=%.1fms keys=%s", resp.status_code, dur, list(js.keys()))
+                        return {"text": js.get("response") or js.get("text") or "", "raw": js}
+                    except Exception:
+                        # 回退到 JSON POST 协议
+                        payload = {
+                            "input": input_text,
+                            "history": history or [],
+                            "output_format": "tlp",
+                        }
+                        logger.debug("[LLM] attempt=%d POST %s/chat-messages", attempt, settings.llm_service_url)
+                        resp = await client.post(
+                            f"{settings.llm_service_url}/chat",
+                            json=payload,
+                            headers={
+                                "Authorization": f"Bearer {settings.provider_api_key}" if settings.provider_api_key else ""
+                            },
+                        )
+                        resp.raise_for_status()
+                        js = resp.json()
+                        dur = (time.monotonic() - start_ts) * 1000
+                        logger.info("[LLM] POST status=%d time=%.1fms keys=%s", resp.status_code, dur, list(js.keys()))
+                        return {
+                            "text": js.get("text") or (js.get("data") or {}).get("text"),
+                            "raw": js,
+                        }
             except Exception as e:
                 last_exc = e
+                logger.warning("[LLM] attempt failed: %s", e)
         raise httpx.HTTPError(f"LLM service failed after retries: {last_exc}")
+
+    # 云厂商：DeepSeek Chat Completions（按你的 curl 示例）
+    if settings.provider_name.lower() == "deepseek" and settings.provider_api_key:
+        endpoint = f"{settings.deepseek_api_base}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.provider_api_key}",
+        }
+        system_prompt = "請將使用者輸入轉換成臺羅拼音（教典／TLPA），只輸出臺羅文字，不要解釋。"
+        payload = {
+            "model": settings.llm_model_name or "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": input_text},
+            ],
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
+            start_ts = time.monotonic()
+            logger.debug("[LLM] DeepSeek POST %s", endpoint)
+            resp = await client.post(endpoint, headers=headers, json=payload)
+            resp.raise_for_status()
+            js = resp.json()
+            dur = (time.monotonic() - start_ts) * 1000
+            logger.info("[LLM] DeepSeek status=%d time=%.1fms", resp.status_code, dur)
+            text = None
+            try:
+                text = js["choices"][0]["message"]["content"]
+            except Exception:
+                text = None
+            return {"text": text or "", "raw": js}
 
     # 其次支持直接调用 Google Gemini API（无需自建 llm_service）
     if settings.provider_name.lower() == "gemini" and settings.provider_api_key:
+        # 按你提供的 curl 方式改写：
+        # curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" \
+        #   -H "x-goog-api-key: $GEMINI_API_KEY" -H 'Content-Type: application/json' -X POST -d '{"contents": [{"parts": [{"text": "..."}]}]}'
         endpoint = f"{settings.gemini_api_base}/models/{settings.llm_model_name}:generateContent"
         headers = {
             "Content-Type": "application/json",
-            "X-goog-api-key": settings.provider_api_key,
+            "x-goog-api-key": settings.provider_api_key,
         }
-        # 你期望输出为台罗拼音：在提示中明确要求格式
+        # 期望输出为台罗拼音：在提示中明确要求格式，仅输出台罗。
         prompt = (
             "請將使用者輸入轉換成臺羅拼音（教典／TLPA），只輸出臺羅文字，不要解釋。\n"
             f"使用者輸入：{input_text}"
         )
         payload = {
             "contents": [
-                {"parts": [{"text": prompt}]}
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
             ]
         }
         async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
+            start_ts = time.monotonic()
+            logger.debug("[LLM] Gemini POST %s", endpoint)
             resp = await client.post(endpoint, headers=headers, json=payload)
             resp.raise_for_status()
             js = resp.json()
+            dur = (time.monotonic() - start_ts) * 1000
+            logger.info("[LLM] Gemini status=%d time=%.1fms", resp.status_code, dur)
             # Gemini 的返回结构：candidates[0].content.parts[0].text
             text = None
             try:
@@ -92,7 +161,33 @@ async def chat_messages(messages: List[Dict[str, str]], *, model_hint: str | Non
             js = resp.json()
             return {"text": js.get("text") or (js.get("data") or {}).get("text", ""), "raw": js}
 
-    # 2) Google Gemini 直连（拼接 messages 为 prompt）
+    # 2) DeepSeek Chat Completions（直接转发 OpenAI 兼容的 messages）
+    if settings.provider_name.lower() == "deepseek" and settings.provider_api_key:
+        endpoint = f"{settings.deepseek_api_base}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.provider_api_key}",
+        }
+        payload = {
+            "model": model_hint or settings.llm_model_name or "deepseek-chat",
+            "messages": messages,
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
+            start_ts = time.monotonic()
+            logger.debug("[LLM] DeepSeek chat.completions POST %s", endpoint)
+            resp = await client.post(endpoint, headers=headers, json=payload)
+            resp.raise_for_status()
+            js = resp.json()
+            dur = (time.monotonic() - start_ts) * 1000
+            logger.info("[LLM] DeepSeek status=%d time=%.1fms", resp.status_code, dur)
+            try:
+                text = js["choices"][0]["message"]["content"]
+            except Exception:
+                text = ""
+            return {"text": text, "raw": js}
+
+    # 3) Google Gemini 直连（拼接 messages 为 prompt）
     if settings.provider_name.lower() == "gemini" and settings.provider_api_key:
         prompt = "\n".join([m.get("content", "") for m in messages])
         endpoint = f"{settings.gemini_api_base}/models/{model_hint or settings.llm_model_name}:generateContent"

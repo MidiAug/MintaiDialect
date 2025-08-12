@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # 文件上传配置
     max_file_size: int = 50 * 1024 * 1024  # 50MB
     upload_dir: str = "uploads"
-    allowed_audio_formats: List[str] = ["wav", "mp3", "flac", "m4a", "ogg"]
+    allowed_audio_formats: List[str] = ["wav", "mp3", "flac", "m4a", "ogg", "webm"]
     
     # CORS配置
     allowed_origins: List[str] = [
@@ -35,20 +35,27 @@ class Settings(BaseSettings):
     
     # 外部模型服务配置（通过HTTP调用本地独立服务或云厂商API网关）
     # 留空则使用内置的模拟返回，以保证开发阶段可用
-    asr_service_url: str = ""
-    tts_service_url: str = ""
-    speech_translation_service_url: str = ""
-    voice_interaction_service_url: str = ""
-    voice_cloning_service_url: str = ""
-    llm_service_url: str = ""  # 专用于文本→台罗拼音的模型服务
+    # 本地微服务默认端口（如未通过环境变量覆盖，则使用本地服务）
+    # 端口按用户要求：ASR=9000, TTS=9002
+    asr_service_url: str = os.getenv("ASR_SERVICE_URL", "http://127.0.0.1:9000")
+    tts_service_url: str = os.getenv("TTS_SERVICE_URL", "http://127.0.0.1:9002")
+    speech_translation_service_url: str = os.getenv("SPEECH_TRANSLATION_SERVICE_URL", "")
+    voice_interaction_service_url: str = os.getenv("VOICE_INTERACTION_SERVICE_URL", "")
+    voice_cloning_service_url: str = os.getenv("VOICE_CLONING_SERVICE_URL", "")
+    # LLM 默认走云厂商分支（DeepSeek），也可通过环境变量切换或指定本地 llm_service_url
+    llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
+    provider_name: str = os.getenv("PROVIDER_NAME", "deepseek")
+    # 按用户要求，将 DeepSeek API Key 硬编码为默认值（仍可通过环境变量覆盖）
+    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-f20295f5bd454c8fbb40409865669884")
 
     # 统一的请求配置
     model_request_timeout: int = 60  # 秒
-    provider_name: str = ""         # 可选：如 openai, azure, volcengine 等
-    provider_api_key: str = ""      # 可选：云厂商API密钥
-    # LLM厂商配置（示例：Google Gemini）
-    llm_model_name: str = "gemini-2.0-flash"  # 当 provider_name=gemini 时使用
-    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    # LLM厂商配置
+    # DeepSeek（默认）
+    deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
+    llm_model_name: str = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+    # Gemini（保留：当 provider_name=gemini 时使用）
+    gemini_api_base: str = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 
     # 数字嘉庚相关：检索内容文件路径（默认硬编码到仓库内）
     jiageng_retrieval_path: str = "knowledge/digital_jiageng.txt"

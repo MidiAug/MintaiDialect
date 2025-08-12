@@ -7,6 +7,25 @@ echo "================================"
 start_local() {
     echo "使用本地环境启动服务..."
     
+    # 启动ASR模型服务
+    echo "🎤 启动ASR模型服务..."
+    cd models/asr_service
+    nohup python asr_service.py > ../../logs/asr_service.log 2>&1 &
+    echo $! > ../../logs/asr_service.pid
+    cd ../..
+    
+    # 启动TTS模型服务
+    echo "🔊 启动TTS模型服务..."
+    cd models/tts_service
+    nohup python tts_service.py > ../../logs/tts_service.log 2>&1 &
+    echo $! > ../../logs/tts_service.pid
+    cd ../..
+    
+    
+    # 等待模型服务启动
+    echo "⏳ 等待模型服务启动..."
+    sleep 5
+    
     # 启动后端
     echo "🚀 启动后端服务..."
     cd backend
@@ -29,6 +48,9 @@ start_local() {
     cd ..
     
     echo "✅ 本地服务启动完成！"
+    echo "🎤 ASR模型服务: http://localhost:9000"
+    echo "🧠 LLM模型服务: http://localhost:9001"
+    echo "🔊 TTS模型服务: http://localhost:9002"
     echo "🌐 前端: http://localhost:5173"
     echo "🔧 后端: http://localhost:8000"
 }
