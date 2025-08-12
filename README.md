@@ -2,6 +2,15 @@
 
 一个基于人工智能的闽台方言语音处理平台，支持语音识别、文本转语音、语音翻译、智能对话和音色克隆等功能。
 
+### 最新更新（2025-08）
+
+- 数字嘉庚模块体验优化：
+  - TTS 缓存稳定化（基于 `speaking_rate|seed|text` 的 SHA1 摘要）。
+  - TTS 文本切分更稳（显式标点集合逐字符切句）。
+  - 字幕时间更准（静音边界拟合 + 起声补偿 + 保守回退，避免错误合段）。
+  - 播放与资源优化（新音频播放前暂停旧音频、关闭临时 AudioContext）。
+  - 端口约定统一：ASR=9000、TTS=9002、LLM=9001（均可通过环境变量覆盖）。
+
 ## 📖 项目概述
 
 本项目旨在为闽台方言提供全面的AI语音处理解决方案，具备以下核心功能：
@@ -49,10 +58,9 @@
 
 ### AI/音频处理
 - **PyTorch** - 深度学习框架
-- **Transformers** - 预训练模型库
-- **Whisper** - 语音识别模型
-- **Librosa** - 音频分析库
-- **SoundFile** - 音频文件处理
+- **Transformers (HuggingFace)** - 预训练模型库（TTS: VITS `facebook/mms-tts-nan`）
+- **ModelScope** - 语音识别（ASR：`speech_UniASR_asr_2pass-minnan-16k`）
+- **Librosa / SoundFile** - 音频分析与文件处理（可选）
 
 ## 🚀 快速开始
 
@@ -127,6 +135,36 @@ npm run dev
 - 前端应用: http://localhost:5173
 - 后端API: http://localhost:8000
 - API文档: http://localhost:8000/docs
+
+### 启动独立模型微服务（本地调试）
+
+提供脚本分别启动 ASR/TTS/LLM 微服务（默认端口：ASR=9000、TTS=9002、LLM=9001）：
+
+```bash
+# TTS（facebook/mms-tts-nan）
+bash scripts/single/start-tts.sh             # 可用 PORT/WORKERS 覆盖
+
+# LLM（示例服务）
+bash scripts/single/start-llm.sh
+
+# ASR（闽南话 16k）
+bash scripts/single/start-asr.sh
+
+# 前端开发
+bash scripts/single/start-frontend.sh
+```
+
+后端默认从环境变量读取这些服务地址（见“环境变量”），未配置时：
+- ASR: `http://127.0.0.1:9000`
+- TTS: `http://127.0.0.1:9002`
+- LLM: 留空则走云厂商（DeepSeek）；设置 `LLM_SERVICE_URL` 可改为本地服务（如 `http://127.0.0.1:9001`）。
+
+> 小贴士（验证 TTS 缓存命中）：
+```bash
+curl -s -o uploads/test1.wav "http://127.0.0.1:9002/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
+curl -s -o uploads/test2.wav "http://127.0.0.1:9002/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
+# 第二次应看到 [TTS] cache hit 日志
+```
 
 ## 🪟 Windows开发指南
 
@@ -215,6 +253,28 @@ docker-compose up -d --build
 - 应用地址: http://localhost:3000
 - API地址: http://localhost:8000
 
+### （可选）在生产中运行模型微服务
+
+若要在同一编排中运行 ASR/TTS/LLM，可在 `docker-compose.yml` 增加服务并为后端注入地址：
+
+```yaml
+services:
+  tts-service:
+    image: your-tts-image
+    ports: ["9002:9002"]
+  llm-service:
+    image: your-llm-image
+    ports: ["9001:9001"]
+  asr-service:
+    image: your-asr-image
+    ports: ["9000:9000"]
+  backend:
+    environment:
+      - ASR_SERVICE_URL=http://asr-service:9000
+      - TTS_SERVICE_URL=http://tts-service:9002
+      - LLM_SERVICE_URL=http://llm-service:9001
+```
+
 ### 传统部署
 
 1. **后端部署**
@@ -286,9 +346,17 @@ UPLOAD_DIR=uploads
 # CORS设置
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
-# AI模型路径 (根据实际模型配置)
-ASR_MODEL_PATH=models/asr
-TTS_MODEL_PATH=models/tts
+# 外部微服务/云厂商（按需覆盖）
+ASR_SERVICE_URL=http://127.0.0.1:9000
+TTS_SERVICE_URL=http://127.0.0.1:9002
+# 若启用本地 LLM 服务：
+# LLM_SERVICE_URL=http://127.0.0.1:9001
+PROVIDER_NAME=deepseek
+# 生产环境请设置为真实密钥：
+# PROVIDER_API_KEY=sk-***
+DEEPSEEK_API_BASE=https://api.deepseek.com
+LLM_MODEL_NAME=deepseek-chat
+GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
 ```
 
 ### 前端配置
@@ -319,6 +387,14 @@ VITE_APP_TITLE=闽台方言大模型系统
 - 与AI进行自然语言对话
 - 支持语音和文本输入
 - 方言文化知识问答
+
+#### 数字嘉庚（DigitalJiageng）
+- 语音输入后：ASR → LLM → TTS，返回音频与可选字幕。
+- 前端播放：
+  - 初始按文本等分生成字幕；
+  - 自动分析音频静音边界并对每句时间轴拟合；
+  - 起声时间进行保守整体提前补偿（≤ 0.15s）；
+  - 拟合质量不足则回退到等分方案，避免字幕合并。
 
 ### 4. 音色克隆
 - 基于参考音频克隆音色

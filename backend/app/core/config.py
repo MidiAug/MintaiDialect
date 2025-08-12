@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
     provider_name: str = os.getenv("PROVIDER_NAME", "deepseek")
     # 按用户要求，将 DeepSeek API Key 硬编码为默认值（仍可通过环境变量覆盖）
-    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-f20295f5bd454c8fbb40409865669884")
+    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "")
 
     # 统一的请求配置
     model_request_timeout: int = 60  # 秒
