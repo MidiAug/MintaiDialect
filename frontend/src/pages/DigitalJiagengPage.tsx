@@ -21,6 +21,7 @@ import {
   GlobalOutlined
 } from '@ant-design/icons'
 import { digitalJiagengAPI, LanguageType } from '@/services/api'
+import jiagengImg from '@/assets/jiageng.png'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -63,7 +64,7 @@ const DigitalJiagengPage: React.FC = () => {
     outputLanguage: LanguageType.MINNAN,
     voiceGender: 'male',
     speakingSpeed: 1.0,
-    showSubtitles: true
+    showSubtitles: false
   })
 
   // 录音相关
@@ -78,12 +79,12 @@ const DigitalJiagengPage: React.FC = () => {
   const lastLogTimeRef = useRef<number>(0)
 
 
-  // 语言选项
-  const languageOptions = [
-    { label: '闽南话', value: LanguageType.MINNAN },
-    { label: '客家话', value: LanguageType.HAKKA },
-    { label: '台湾话', value: LanguageType.TAIWANESE },
-    { label: '普通话', value: LanguageType.MANDARIN },
+  // 语言选项（仅展示当前支持项）
+  const inputLanguageOptions = [
+    { label: '闽南语/普通话', value: LanguageType.MINNAN },
+  ]
+  const outputLanguageOptions = [
+    { label: '闽南语', value: LanguageType.MINNAN },
   ]
 
   // 组件卸载时清理资源
@@ -680,9 +681,10 @@ const DigitalJiagengPage: React.FC = () => {
         }
       `}</style>
       
+      
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
       <div className="text-center mb-24">
-        <Title level={2}>🎭 数字嘉庚</Title>
+        {/* <Title level={2}>🎭 数字嘉庚</Title> */}
         <Paragraph type="secondary" style={{ fontSize: '16px' }}>
           与AI嘉庚进行自然对话，体验跨越时空的智慧交流
         </Paragraph>
@@ -694,7 +696,7 @@ const DigitalJiagengPage: React.FC = () => {
           <Card title="对话设置" size="small" className="mb-16">
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
               {/* 角色扮演开关 */}
-              <div>
+              {/* <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text strong>嘉庚扮演</Text>
                   <Switch
@@ -714,7 +716,7 @@ const DigitalJiagengPage: React.FC = () => {
                 </Text>
               </div>
 
-              <Divider />
+              <Divider /> */}
 
               {/* 语言设置 */}
               <div>
@@ -722,8 +724,10 @@ const DigitalJiagengPage: React.FC = () => {
                 <Select
                   value={settings.inputLanguage}
                   onChange={(value) => setSettings(prev => ({ ...prev, inputLanguage: value }))}
-                  options={languageOptions}
+                  options={inputLanguageOptions}
                   style={{ width: '100%', marginTop: 4 }}
+                  open={false}
+                  onClick={() => message.info('暂不支持其他语言')}
                 />
               </div>
 
@@ -732,8 +736,10 @@ const DigitalJiagengPage: React.FC = () => {
                 <Select
                   value={settings.outputLanguage}
                   onChange={(value) => setSettings(prev => ({ ...prev, outputLanguage: value }))}
-                  options={languageOptions}
+                  options={outputLanguageOptions}
                   style={{ width: '100%', marginTop: 4 }}
+                  open={false}
+                  onClick={() => message.info('暂不支持其他语言')}
                 />
               </div>
 
@@ -759,9 +765,20 @@ const DigitalJiagengPage: React.FC = () => {
                 <Text strong>语速: {settings.speakingSpeed}x</Text>
                 <div style={{ marginTop: 8 }}>
                   <Button.Group>
-                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 0.8 }))}>慢</Button>
-                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.0 }))}>正常</Button>
-                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.2 }))}>快</Button>
+                    <Button size="small" onClick={() => message.info('暂不支持其他语速')}>慢</Button>
+                    <Button 
+                      size="small"
+                      onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.0 }))}
+                      style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: '#ffffff',
+                        borderColor: 'transparent',
+                        boxShadow: '0 2px 8px rgba(118, 75, 162, 0.35)'
+                      }}
+                    >
+                      正常
+                    </Button>
+                    <Button size="small" onClick={() => message.info('暂不支持其他语速')}>快</Button>
                   </Button.Group>
                 </div>
               </div>
@@ -897,7 +914,7 @@ const DigitalJiagengPage: React.FC = () => {
               })()}
 
               {/* 字幕开关 */}
-              <div 
+              {/* <div 
                 style={{ 
                   position: 'absolute', 
                   top: '16px', 
@@ -915,7 +932,7 @@ const DigitalJiagengPage: React.FC = () => {
                     onChange={(checked) => setSettings(prev => ({ ...prev, showSubtitles: checked }))}
                   />
                 </Space>
-              </div>
+              </div> */}
             </div>
 
             {/* 移除页面下方字幕组件，仅保留浮层 */}
@@ -928,7 +945,7 @@ const DigitalJiagengPage: React.FC = () => {
           {settings.enableRolePlay && (
             <Card title="陈嘉庚先生" size="small" className="mb-16">
               <div className="text-center mb-12">
-                <Avatar size={80} icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
+                <Avatar size={80} src={jiagengImg} />
               </div>
               <Paragraph style={{ fontSize: '12px', textAlign: 'center' }}>
                 <Text strong>陈嘉庚 (1874-1961)</Text><br />
@@ -972,7 +989,7 @@ const DigitalJiagengPage: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 功能说明 */}
+      {/* 功能说明
       <Card title="数字嘉庚功能介绍" className="mt-24">
         <Row gutter={[24, 24]}>
           <Col xs={24} md={8}>
@@ -1003,7 +1020,7 @@ const DigitalJiagengPage: React.FC = () => {
             </ul>
           </Col>
         </Row>
-      </Card>
+      </Card> */}
     </div>
     </>
   )

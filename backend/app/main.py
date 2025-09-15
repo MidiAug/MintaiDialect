@@ -13,7 +13,9 @@ import sys
 
 # 导入路由模块
 from app.routers import asr_tts, speech_translation, voice_interaction, voice_cloning, digital_jiageng
+from app.routers import auth as auth_router
 from app.core.config import settings
+from app.core.db import Base, engine
 
 # 创建FastAPI应用实例
 def _setup_logging():
@@ -56,6 +58,9 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# 自动创建数据库表（演示环境）
+Base.metadata.create_all(bind=engine)
+
 # 配置CORS中间件，允许前端跨域访问
 app.add_middleware(
     CORSMiddleware,
@@ -78,6 +83,7 @@ app.include_router(speech_translation.router, prefix="/api/speech-translation", 
 app.include_router(voice_interaction.router, prefix="/api/voice-interaction", tags=["语音交互"])
 app.include_router(voice_cloning.router, prefix="/api/voice-cloning", tags=["音色克隆"])
 app.include_router(digital_jiageng.router, tags=["数字嘉庚"])
+app.include_router(auth_router.router, prefix="/api", tags=["鉴权与用户"])
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

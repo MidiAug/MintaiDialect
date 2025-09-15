@@ -1,41 +1,23 @@
 import React from 'react'
 import { Layout, Menu, Typography, Button, Dropdown } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  HomeOutlined,
-  SoundOutlined,
-  TranslationOutlined,
-  MessageOutlined,
-  UserOutlined,
-  ExperimentOutlined,
-  LogoutOutlined,
-} from '@ant-design/icons'
+import { UserOutlined, HomeOutlined, LogoutOutlined } from '@ant-design/icons'
 import { useAuth } from '@/contexts/AuthContext'
 
 const { Header } = Layout
 const { Title } = Typography
 
-const AppHeader: React.FC = () => {
+const JiagengHeader: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { isAuthenticated, user, logout } = useAuth()
 
-  // 菜单项配置
   const menuItems = [
     {
       key: '/',
       icon: <HomeOutlined />,
-      label: '首页',
+      label: '数字嘉庚',
     },
-    ...(isAuthenticated
-      ? [
-          { key: '/asr-tts', icon: <SoundOutlined />, label: '语音文本互转' },
-          { key: '/speech-translation', icon: <TranslationOutlined />, label: '语音互译' },
-          { key: '/voice-interaction', icon: <MessageOutlined />, label: '语音交互' },
-          { key: '/voice-cloning', icon: <ExperimentOutlined />, label: '音色克隆' },
-          { key: '/digital-jiageng', icon: <UserOutlined />, label: '数字嘉庚' },
-        ]
-      : [])
   ]
 
   const handleMenuClick = ({ key }: { key: string }) => {
@@ -57,7 +39,6 @@ const AppHeader: React.FC = () => {
         boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
       }}
     >
-      {/* Logo 和标题 */}
       <div 
         style={{ 
           display: 'flex', 
@@ -71,7 +52,7 @@ const AppHeader: React.FC = () => {
           style={{
             width: 40,
             height: 40,
-            background: 'linear-gradient(135deg, #1890ff, #52c41a)',
+            background: 'linear-gradient(135deg, #667eea, #764ba2)',
             borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
@@ -82,21 +63,20 @@ const AppHeader: React.FC = () => {
             marginRight: 12,
           }}
         >
-          方
+          庚
         </div>
         <Title 
           level={4} 
           style={{ 
             margin: 0, 
-            color: '#1890ff',
+            color: '#595959',
             fontWeight: 600,
           }}
         >
-          闽台方言大模型
+          数字嘉庚
         </Title>
       </div>
 
-      {/* 导航菜单 */}
       <Menu
         theme="light"
         mode="horizontal"
@@ -110,20 +90,10 @@ const AppHeader: React.FC = () => {
         }}
       />
 
-      {/* 右侧：登录/注册 或 用户下拉 */}
       {isAuthenticated ? (
         <Dropdown
           menu={{
             items: [
-              {
-                key: 'account',
-                icon: <UserOutlined />,
-                label: '个人信息',
-                onClick: () => navigate('/account'),
-              },
-              {
-                type: 'divider' as const,
-              },
               {
                 key: 'logout',
                 icon: <LogoutOutlined />,
@@ -133,7 +103,7 @@ const AppHeader: React.FC = () => {
             ],
           }}
         >
-          <Button type="text" icon={<UserOutlined />}>
+          <Button type="text" icon={<UserOutlined />}> 
             {user?.username || '用户'}
           </Button>
         </Dropdown>
@@ -147,4 +117,6 @@ const AppHeader: React.FC = () => {
   )
 }
 
-export default AppHeader 
+export default JiagengHeader
+
+

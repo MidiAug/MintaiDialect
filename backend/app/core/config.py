@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     # 安全配置
     secret_key: str = "your-secret-key-here"
     access_token_expire_minutes: int = 30
+
+    # 短信推送服务配置（例如 spug）
+    # 示例： https://push.spug.cc/send/<TOKEN>
+    # 硬编码默认值；可被环境变量覆盖
+    sms_push_url: str = os.getenv("SMS_PUSH_URL", "https://push.spug.cc/send/X4PBx8EwBOjYAny5")
+    sms_push_name: str = os.getenv("SMS_PUSH_NAME", "推送助手")
     
     class Config:
         env_file = ".env"

@@ -12,7 +12,14 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
-    // 可以在这里添加认证token等
+    // 从本地读取 token 并附加到请求头
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (token) {
+        config.headers = config.headers || {}
+        ;(config.headers as any)['Authorization'] = `Bearer ${token}`
+      }
+    } catch {}
     return config
   },
   (error) => {
@@ -385,6 +392,77 @@ export const digitalJiagengAPI = {
   getJiagengInfo: async (): Promise<ApiResponse<any>> => {
     return api.get('/digital-jiageng/info')
   }
+}
+
+// ============ 鉴权与用户 API ============
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: {
+    username: string
+    email?: string
+    phone?: string
+  }
+}
+
+export interface RegisterByEmailRequest {
+  username: string
+  password: string
+  email: string
+  code: string
+}
+
+export interface RegisterByPhoneRequest {
+  username: string
+  password: string
+  phone: string
+  code: string
+}
+
+export const authAPI = {
+  // 发送邮箱验证码
+  sendEmailCode: (email: string, scene: 'register' | 'reset_password' = 'register') => {
+    return api.post('/auth/send-email-code', { email, scene })
+  },
+
+  // 发送短信验证码
+  sendSmsCode: (phone: string, scene: 'register' | 'reset_password' = 'register') => {
+    return api.post('/auth/send-sms-code', { phone, scene })
+  },
+
+  // 账号密码登录
+  login: (data: LoginRequest) => {
+    return api.post('/auth/login', data) as unknown as Promise<ApiResponse<LoginResponse>>
+  },
+
+  // 邮箱注册
+  registerWithEmail: (data: RegisterByEmailRequest) => {
+    return api.post('/auth/register/email', data)
+  },
+
+  // 手机注册
+  registerWithPhone: (data: RegisterByPhoneRequest) => {
+    return api.post('/auth/register/phone', data)
+  },
+
+  // 获取个人信息
+  getProfile: () => {
+    return api.get('/auth/me') as unknown as Promise<ApiResponse<{ username: string; email?: string; phone?: string }>>
+  },
+
+  // 更新个人信息
+  updateProfile: (updates: { email?: string; phone?: string }) => {
+    return api.patch('/auth/me', updates) as unknown as Promise<ApiResponse<{ username: string; email?: string; phone?: string }>>
+  },
+
+  // 修改密码
+  changePassword: (oldPassword: string, newPassword: string) => {
+    return api.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword })
+  },
 }
 
 export default api 
