@@ -1,0 +1,22 @@
+name: mintai
+channels:
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge/
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python=3.10
+  - torchaudio
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.1
+  - transformers
+  - evaluate
+  - peft
+  - librosa
+  - ffmpeg
+  - libxml2
+  - swig
+  - libxslt
+prefix: /home/lcq/miniconda3/envs/mintai
