@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     allowed_origins: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174"
     ]
     
     # 外部模型服务配置（通过HTTP调用本地独立服务或云厂商API网关）
@@ -44,16 +46,20 @@ class Settings(BaseSettings):
     voice_cloning_service_url: str = os.getenv("VOICE_CLONING_SERVICE_URL", "")
     # LLM 默认走云厂商分支（DeepSeek），也可通过环境变量切换或指定本地 llm_service_url
     llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
+    
     provider_name: str = os.getenv("PROVIDER_NAME", "deepseek")
-    # 按用户要求，将 DeepSeek API Key 硬编码为默认值（仍可通过环境变量覆盖）
-    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "")
+    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-f20295f5bd454c8fbb40409865669884")
+
+    # provider_name: str = os.getenv("PROVIDER_NAME", "qwen")
+    # provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-75c80f6957ca4655a2033fc5cda4bb3c")
 
     # 统一的请求配置
     model_request_timeout: int = 60  # 秒
     # LLM厂商配置
     # DeepSeek（默认）
     deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
-    llm_model_name: str = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+    llm_model_name: str = os.getenv("LLM_MODEL_NAME", "")
+    
     # Gemini（保留：当 provider_name=gemini 时使用）
     gemini_api_base: str = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 

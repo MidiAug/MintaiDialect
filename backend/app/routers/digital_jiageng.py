@@ -139,16 +139,19 @@ async def chat_with_jiageng(
                 except Exception:
                     retrieved = ""
         # 根据 show_subtitles 动态要求 LLM 输出
-        # - 勾选字幕：同时需要中文与台罗 -> {"zh": "...", "tlp": "..."}
-        # - 不勾选：仅返回台罗 -> {"tlp": "..."}
+        # - 勾选字幕：同时需要中文与台罗 -> {"zh": "...", "POJ": "..."}
+        # - 不勾选：仅返回台罗 -> {"POJ": "..."}
         if show_subtitles:
-            format_hint = "严格以 JSON 返回：{\\\"zh\\\": \\\"中文普通话回答\\\", \\\"tlp\\\": \\\"对应的POJ白话文注音\\\"}。"
+            format_hint = "严格以 JSON 返回：{\\\"zh\\\": \\\"中文普通话回答\\\", \\\"POJ\\\": \\\"对应的POJ白话文注音\\\"}。"
         else:
-            format_hint = "严格以 JSON 返回：{\\\"tlp\\\": \\\"对应的POJ白话文注音\\\"}。不要包含 zh 字段。"
+            format_hint = "严格以 JSON 返回：{\\\"POJ\\\": \\\"对应的POJ白话文注音\\\"}。不要包含 zh 字段。"
         prompt = (
             "你是陈嘉庚，请基于提供的资料进行角色化回答。"
             f"{format_hint}"
-            "注意：tlp 中将原逗号替换为空格，将原空格替换为 '-'。不要输出除 JSON 之外的任何内容。\n"
+            "注意：POJ 中将原逗号替换为空格，将原空格替换为 '-'。不要输出除 JSON 之外的任何内容。\n"
+            "示例输出文本和拼音对如下：\n"
+            "zh：我深知国家要强，民族要振兴，根本在于教育。我连小时候贫，未受过稳定的教育，深谙一识之所需。后来侨居于南阳，经商有成，我便立志：处贫穷之处，有机会；利用此，有机会。我募远子孙，守祖，若愿万迁学，资助教育，赴革命运。我常说：教育不是营利的事业，要有牺牲精神。我希望透过教育，唤起民族觉醒，达成国民素质，使国家集强起来。\n"
+            "POJ：Góa-chhim-chai-kok-ka-beh-kiông-siāng bîn-cho̍k-beh-chìn-heng kun-pún-chāi-ū-kau-io̍k Góa-liân-siàu-sî-ka-phîn bô-îⁿ-siū-ūn-téng-ê-kau-io̍k chhim-káng-chi̍t-sik-ê-só͘-iàu Āu-lâi-chhōe--tī-Lâm-iông-cheng-siong-ū-sêng góa-piān-lia̍p-chì: chô͘-būn-chhù--chū-ū-sē-hōe lī-iōng--chū-ū-sē-hōe Góa-bō-oán-chú-sun-siú-chô͘ nā-oán-bān-chhian-ha̍k-chú-īn-kau-io̍k-hō͘-kái-bēng-ūn Góa-chêng--seh: “kau-io̍k-bō-sī-îng-lī-ê-siā-gia̍p beh-ū-hi-seng-seng-sîn.” Góa-hi-bāng-tōng-kò͘-kau-io̍k-hoàⁿ-khí-bîn-cho̍k-kak-síng thit-sîng-kok-bîn-só͘-chì hō͘-kok-ka-chi̍n-chēng-kiông--lāi.\n"
             f"资料：{retrieved}\n"
             f"用户问题：{user_input}"
         )
@@ -167,7 +170,7 @@ async def chat_with_jiageng(
             # 降级：如果无法连接LLM，给出保底文本，保持链路可用
             response_text = (user_input or "您好！我已收到您的消息，我们稍后给出更详细的回答。")
         zh_text = ""
-        tlp_text = ""
+        POJ_text = ""
         # 优先解析 JSON（未勾选字幕时不会把原始 JSON 作为中文落下）
         def _normalize_jsonish_str(s: str) -> str:
             if not s:
@@ -235,8 +238,8 @@ async def chat_with_jiageng(
                 data = json.loads(raw)
                 if isinstance(data, dict):
                     zh_v = data.get('zh') or data.get('ZH') or data.get('Zh')
-                    tlp_v = data.get('tlp') or data.get('TLP') or data.get('Tlp')
-                    return (str(zh_v or ''), str(tlp_v or ''))
+                    POJ_v = data.get('POJ') or data.get('POJ') or data.get('POJ')
+                    return (str(zh_v or ''), str(POJ_v or ''))
             except Exception:
                 pass
             # 二次：normalize 后再 JSON
@@ -245,8 +248,8 @@ async def chat_with_jiageng(
                 data2 = json.loads(cleaned)
                 if isinstance(data2, dict):
                     zh_v = data2.get('zh') or data2.get('ZH') or data2.get('Zh')
-                    tlp_v = data2.get('tlp') or data2.get('TLP') or data2.get('Tlp')
-                    return (str(zh_v or ''), str(tlp_v or ''))
+                    POJ_v = data2.get('POJ') or data2.get('POJ') or data2.get('POJ')
+                    return (str(zh_v or ''), str(POJ_v or ''))
             except Exception:
                 pass
             # 三次：截取最外层 { ... } 再试
@@ -258,39 +261,47 @@ async def chat_with_jiageng(
                     data3 = json.loads(candidate)
                     if isinstance(data3, dict):
                         zh_v = data3.get('zh') or data3.get('ZH') or data3.get('Zh')
-                        tlp_v = data3.get('tlp') or data3.get('TLP') or data3.get('Tlp')
-                        return (str(zh_v or ''), str(tlp_v or ''))
+                        POJ_v = data3.get('POJ') or data3.get('POJ') or data3.get('POJ')
+                        return (str(zh_v or ''), str(POJ_v or ''))
                 except Exception:
                     pass
             # 最后：用正则直接抽取字段（容错，避免整体失败）
             zh_guess = _extract_field(cleaned, 'zh') or _extract_field(raw, 'zh')
-            tlp_guess = _extract_field(cleaned, 'tlp') or _extract_field(raw, 'tlp')
+            POJ_guess = _extract_field(cleaned, 'POJ') or _extract_field(raw, 'POJ')
             # 极简兜底：若仍未取到，尝试非贪婪匹配双引号包裹的值
-            if not tlp_guess:
-                m_last = re.search(r'"tlp"\s*:\s*"(.*?)"', raw, flags=re.DOTALL)
+            if not POJ_guess:
+                m_last = re.search(r'"POJ"\s*:\s*"(.*?)"', raw, flags=re.DOTALL)
                 if m_last:
-                    tlp_guess = m_last.group(1)
-            return zh_guess, tlp_guess
+                    POJ_guess = m_last.group(1)
+            return zh_guess, POJ_guess
 
-        zh_text, tlp_text = _parse_llm(response_text)
-        logger.debug("[DJ] 解析LLM输出: zh_len=%s tlp_len=%s", len(zh_text), len(tlp_text))
+        zh_text, POJ_text = _parse_llm(response_text)
+        # # 保障 TTS 连贯性：统一将空白替换为 '-'，去重连续 '-'
+        # if POJ_text:
+        #     tmp = POJ_text
+        #     tmp = tmp.replace('，', ' ').replace(',', ' ')
+        #     tmp = re.sub(r"\s+", '-', tmp.strip())
+        #     tmp = re.sub(r"-{2,}", '-', tmp)
+        #     POJ_text = tmp
+        # logger.debug("[DJ] 解析LLM输出: zh_len=%s POJ_len=%s", len(zh_text), len(POJ_text))
 
         # 简单情感设置（可后续接入情感模型）
         emotion = "睿智" if enable_role_play else "友好"
         
         # 若缺失台罗，直接抛错，让前端给出重试提示
-        if not tlp_text:
+        if not POJ_text:
             logger.error("[DJ] LLM 未返回台罗文本，无法进行TTS")
             raise HTTPException(status_code=502, detail="生成台罗拼音失败，请重试")
 
-        # 3) TTS：仅使用台罗拼音（TLPA/POJ）转语音
+        # 3) TTS：仅使用台罗拼音（POJA/POJ）转语音
         response_audio_url = None
+        backend_subtitles = []
         try:
             tts_res = None
             if settings.tts_service_url:
-                logger.debug("[DJ] 调用TTS服务: url=%s, 台罗文本长度=%d", settings.tts_service_url, len(tlp_text))
+                logger.debug("[DJ] 调用TTS服务: url=%s, 台罗文本长度=%d", settings.tts_service_url, len(POJ_text))
                 tts_res = await tts_service.synthesize(
-                    text=tlp_text,
+                    text=POJ_text,
                     target_language=output_language.value,
                 )
                 # 若返回直接是音频二进制，则保存到 uploads 并返回 URL
@@ -319,7 +330,7 @@ async def chat_with_jiageng(
         confidence = 0.9
         
         # 将文本回答优先返回台罗（当前阶段用于 TTS），字幕文本单独返回
-        combined_text = tlp_text or zh_text or response_text
+        combined_text = POJ_text or zh_text or response_text
 
         response_data = JiagengChatResponse(
             response_text=combined_text,

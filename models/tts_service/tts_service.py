@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse
 import torch, scipy
 from transformers import VitsModel, AutoTokenizer, set_seed
@@ -41,7 +41,8 @@ app = FastAPI(lifespan=lifespan)
 
 # 2) 设备/精度
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
+# 为避免 VITS 在 flow/spline 步骤中出现 Half/Float 混用导致的运行时错误，这里统一使用 float32
+DTYPE = torch.float32
 
 # 3) 加载模型（只加载一次，避免每次请求都耗时）
 model = VitsModel.from_pretrained("facebook/mms-tts-nan", torch_dtype=DTYPE)
@@ -50,7 +51,7 @@ tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-nan")
 
 # 默认合成参数
 model.speaking_rate = 0.9
-model.noise_scale = 0.3
+model.noise_scale = 1
 
 # 线程池（仅在 CPU 下用于并行多段文本合成）
 EXECUTOR = ThreadPoolExecutor(max_workers=min(4, (os.cpu_count() or 2))) if DEVICE == "cpu" else None
@@ -74,15 +75,15 @@ def _split_text(text: str) -> List[str]:
     """按标点或空格切分：
     - 若包含标点（。！？!?，,；;：: .），严格按标点切句
     - 否则把空格当作整段文本之间的分隔符，直接切段
-    - 仍不足再按定长切片（12 字）
+    - 不再使用定长切片
     """
     s = (text or "").strip()
     if not s:
         return []
 
-    # 先判断是否含“正常标点”，使用显式集合避免正则字符类嵌套歧义
+    # 标点集合
     punct_chars = set("。！？!?，,；;：:.")
-    if any((ch in punct_chars) for ch in s):
+    if any(ch in punct_chars for ch in s):
         parts: List[str] = []
         buf: list[str] = []
         for ch in s:
@@ -98,29 +99,34 @@ def _split_text(text: str) -> List[str]:
             parts.append(tail)
         return parts
 
-    # 否则：把空格当作整段文本之间的分隔符，直接切段
+    # 否则：空格切分
     tokens = [t for t in re.split(r"\s+", s) if t]
-    if len(tokens) >= 2:
+    if tokens:
         return tokens
 
-    # 最后：定长切片
-    CHARS = 12
-    return [s[i:i+CHARS] for i in range(0, len(s), CHARS)]
+    # 没有空格也没有标点，则返回原文本
+    return [s]
+
 
 
 def _synthesize_segment(text: str, speaking_rate: float, seed: int = 42) -> torch.Tensor:
+    logger.info(f"synthesize_segment: text={text}, speaking_rate={speaking_rate}, seed={seed}")
     set_seed(seed)
     inputs = tokenizer(text, return_tensors="pt")
-    inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+    # 确保嵌入索引张量为 Long 类型，并迁移到正确设备
+    moved: dict[str, torch.Tensor] = {}
+    for key, value in inputs.items():
+        if key in ("input_ids", "attention_mask", "token_type_ids"):
+            moved[key] = value.to(dtype=torch.long, device=DEVICE)
+        else:
+            moved[key] = value.to(DEVICE)
+    inputs = moved
     # 覆盖语速
     model.speaking_rate = speaking_rate
     # 推理
-    if DEVICE == "cuda":
-        with torch.inference_mode(), torch.cuda.amp.autocast(dtype=DTYPE):
-            out = model(**inputs).waveform[0]
-    else:
-        with torch.inference_mode():
-            out = model(**inputs).waveform[0]
+    # 统一使用 float32 精度，避免 dtype 不匹配问题
+    with torch.inference_mode():
+        out = model(**inputs).waveform[0]
     return out.detach().cpu()
 
 
@@ -139,6 +145,7 @@ def _concat_tensor_wav(parts: List[torch.Tensor]) -> np.ndarray:
 # 4) 语音合成接口
 @app.get("/tts")
 def synthesize(
+    request: Request,
     text: str = Query(..., description="要合成的文本"),
     speaking_rate: float = Query(0.9, ge=0.5, le=1.5, description="语速 0.5~1.5"),
     seed: int = Query(42, description="随机种子"),
@@ -146,6 +153,17 @@ def synthesize(
 ):
     t0 = time.time()
     segments = _split_text(text)
+    # 接收参数日志：包含原始 URL（便于查看 % 编码）、文本预览和 UTF-8 十六进制预览
+    preview = (text[:200] + "...") if len(text or "") > 200 else (text or "")
+    logger.info(
+        "[TTS] received GET: url=%s len=%d rate=%.2f seed=%d parallel=%s text_preview=%s",
+        str(request.url), len(text or ""), speaking_rate, seed, parallel, preview,
+    )
+    try:
+        utf8_hex = (text or "").encode("utf-8", errors="ignore").hex()
+        logger.debug("[TTS] utf8_hex_preview=%s", utf8_hex[:256])
+    except Exception:
+        pass
     logger.info(
         "[TTS] request: len=%d, segments=%d, device=%s, rate=%.2f, parallel=%s",
         len(text or ""), len(segments), DEVICE, speaking_rate, (parallel and DEVICE == "cpu"),
@@ -200,6 +218,37 @@ def synthesize(
 
     # 返回文件
     return FileResponse(filepath, media_type="audio/wav", filename="output.wav")
+
+from pydantic import BaseModel
+
+
+class TTSPostRequest(BaseModel):
+    text: str
+    speaking_rate: float = 0.9
+    seed: int = 42
+    parallel: bool = True
+
+
+@app.post("/tts")
+def synthesize_post(req: TTSPostRequest, request: Request):
+    """兼容 JSON POST 协议，参数与 GET 等价。"""
+    preview = (req.text[:200] + "...") if len(req.text or "") > 200 else (req.text or "")
+    logger.info(
+        "[TTS] received POST: url=%s len=%d rate=%.2f seed=%d parallel=%s text_preview=%s",
+        str(request.url), len(req.text or ""), req.speaking_rate, req.seed, req.parallel, preview,
+    )
+    try:
+        utf8_hex = (req.text or "").encode("utf-8", errors="ignore").hex()
+        logger.info("[TTS] utf8_hex_preview=%s", utf8_hex[:256])
+    except Exception:
+        pass
+    return synthesize(
+        request=request,
+        text=req.text,
+        speaking_rate=req.speaking_rate,
+        seed=req.seed,
+        parallel=req.parallel,
+    )
 
 
 if __name__ == "__main__":

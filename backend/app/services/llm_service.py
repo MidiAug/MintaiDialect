@@ -3,6 +3,7 @@ import time
 import logging
 import httpx
 from app.core.config import settings
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -98,6 +99,38 @@ async def chat_to_taibun(input_text: str, *, history: List[dict] | None = None) 
                 text = None
             return {"text": text or "", "raw": js}
 
+    # 阿里云 DashScope（Qwen）OpenAI 兼容 Chat Completions
+    if settings.provider_name.lower() in ("dashscope", "qwen", "aliyun") and settings.provider_api_key:
+        dashscope_base = getattr(settings, "dashscope_api_base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        endpoint = f"{dashscope_base}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.provider_api_key}",
+        }
+        system_prompt = "請將使用者輸入轉換成臺羅拼音（教典／TLPA），只輸出臺羅文字，不要解釋。"
+        payload = {
+            "model": settings.llm_model_name or "qwen-plus",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": input_text},
+            ],
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=settings.model_request_timeout) as client:
+            start_ts = time.monotonic()
+            logger.debug("[LLM] DashScope POST %s", endpoint)
+            resp = await client.post(endpoint, headers=headers, json=payload)
+            resp.raise_for_status()
+            js = resp.json()
+            dur = (time.monotonic() - start_ts) * 1000
+            logger.info("[LLM] DashScope status=%d time=%.1fms", resp.status_code, dur)
+            text = None
+            try:
+                text = js["choices"][0]["message"]["content"]
+            except Exception:
+                text = None
+            return {"text": text or "", "raw": js}
+
     # 其次支持直接调用 Google Gemini API（无需自建 llm_service）
     if settings.provider_name.lower() == "gemini" and settings.provider_api_key:
         # 按你提供的 curl 方式改写：
@@ -186,6 +219,40 @@ async def chat_messages(messages: List[Dict[str, str]], *, model_hint: str | Non
             except Exception:
                 text = ""
             return {"text": text, "raw": js}
+
+    # 2.5) 阿里云 DashScope（Qwen）OpenAI 兼容 Chat Completions
+    if settings.provider_name.lower() in ("dashscope", "qwen", "aliyun") and settings.provider_api_key:
+        # 创建官方 SDK 异步客户端（AsyncOpenAI）
+        client = AsyncOpenAI(
+            api_key=settings.provider_api_key,
+            base_url=getattr(settings, "dashscope_api_base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        )
+
+        start_ts = time.monotonic()
+        logger.debug("[LLM] DashScope (SDK) chat.completions.create called")
+
+        try:
+            # 异步调用 chat completions（使用 AsyncOpenAI + await create）
+            completion = await client.chat.completions.create(
+                model=model_hint or settings.llm_model_name or "qwen-max",
+                messages=messages,
+                extra_body={"enable_thinking": False},  # 非流式必须加
+            )
+        except Exception as e:
+            dur = (time.monotonic() - start_ts) * 1000
+            logger.error("[LLM] DashScope 请求失败: %s (耗时 %.1fms)", e, dur)
+            return {"text": "", "raw": str(e)}
+
+        dur = (time.monotonic() - start_ts) * 1000
+        logger.info("[LLM] DashScope 返回成功 time=%.1fms", dur)
+
+        # 提取文本
+        try:
+            text = completion.choices[0].message.content
+        except (KeyError, IndexError, TypeError):
+            text = ""
+
+        return {"text": text, "raw": completion.model_dump()}
 
     # 3) Google Gemini 直连（拼接 messages 为 prompt）
     if settings.provider_name.lower() == "gemini" and settings.provider_api_key:
