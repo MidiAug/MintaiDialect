@@ -519,20 +519,22 @@ const DigitalJiagengPage: React.FC = () => {
         const jiagengMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           type: 'jiageng',
-          // 仅在开启字幕时使用中文字幕源；否则不提供内容用于字幕生成
-          content: settings.showSubtitles ? (((response.data as any)?.subtitle_text) || '') : '',
+          // 内容不再用于字幕生成，保留为空
+          content: '',
           audioUrl: response.data.response_audio_url,
           timestamp: new Date().toLocaleTimeString(),
-          // 优先使用后端返回的精准字幕（若有）
-          subtitles: (settings.showSubtitles && (response.data as any)?.subtitles) || []
+          // 使用后端返回的字幕
+          subtitles: (response.data as any)?.subtitles || []
         }
 
         setMessages(prev => [...prev, jiagengMessage])
         
         // 自动播放嘉庚的回复
         if (response.data.response_audio_url) {
-          console.debug('[DJ-UI] play reply audio, textLen=', (jiagengMessage.content||'').length, 'subOn=', settings.showSubtitles)
-          playAudio(jiagengMessage.id, response.data.response_audio_url, settings.showSubtitles ? jiagengMessage.content : '')
+          const subs = (response.data as any)?.subtitles || []
+          console.debug('[DJ-UI] play reply audio, subsLen=', subs.length, subs.slice(0, 2))
+          // 无论 settings.showSubtitles 是否为 true，仍然驱动播放与内部 ontime 字幕逻辑
+          playAudio(jiagengMessage.id, response.data.response_audio_url, undefined, subs)
         } else {
           // 后端未返回音频：保持文字展示，做温和提示即可，避免被误判为失败
           message.info('本次未生成音频，已显示文字')
@@ -549,7 +551,7 @@ const DigitalJiagengPage: React.FC = () => {
   }
 
   // 播放音频
-  const playAudio = (messageId: string, audioUrl: string, contentText?: string) => {
+  const playAudio = (messageId: string, audioUrl: string, contentText?: string, initialSubtitles?: Array<{ text: string; start_time: number; end_time: number }>) => {
     console.debug('[DJ-UI] playAudio called', { messageId, audioUrl, showSubtitles: settings.showSubtitles })
     if (currentlyPlaying === messageId) {
       // 停止播放
@@ -574,32 +576,14 @@ const DigitalJiagengPage: React.FC = () => {
       const audio = new Audio(audioUrl)
       currentAudioRef.current = audio
 
-      // 获取消息的字幕数据（若无则在元数据加载后生成）
+      // 获取消息的字幕数据（优先使用调用方传入，避免 state 竞态）
       const message = messages.find(msg => msg.id === messageId)
-      let subtitles = message?.subtitles || []
+      let subtitles = (initialSubtitles && initialSubtitles.length > 0) ? initialSubtitles : (message?.subtitles || [])
 
       audio.onloadedmetadata = () => {
         console.debug('[DJ-UI] audio metadata loaded, duration=', audio.duration, 'existingSubtitles=', subtitles?.length || 0)
-        const rawTextSource = contentText ?? message?.content ?? ''
-        const textSource = normalizeZhSource(rawTextSource)
-        if (textSource) {
-          const simple = generateSubtitles(textSource, audio.duration)
-          subtitles = simple
-          setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: simple } : m))
-          // 使用音频静音边界拟合并全局提前校准首句，降低前段延迟
-          refineSubtitlesWithAudio(audioUrl, textSource, simple).then(refined => {
-            subtitles = refined
-            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: refined } : m))
-          }).catch(() => {})
-        }
       }
-      // 兜底：若用户极快触发播放，先用一个假设时长生成，后续 onloadedmetadata 再覆盖
-      if ((!subtitles || subtitles.length === 0) && isNaN(audio.duration) && (contentText ?? message?.content ?? '')) {
-        const temp = generateSubtitles(normalizeZhSource(contentText ?? message?.content ?? ''), 4)
-        subtitles = temp
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, subtitles: temp } : m))
-        console.debug('[DJ-UI] fallback subtitles len=', temp.length, 'first=', temp[0]?.text)
-      }
+      // 前端不再兜底生成字幕
 
       audio.ontimeupdate = () => {
         const currentTime = audio.currentTime
@@ -765,20 +749,10 @@ const DigitalJiagengPage: React.FC = () => {
                 <Text strong>语速: {settings.speakingSpeed}x</Text>
                 <div style={{ marginTop: 8 }}>
                   <Button.Group>
-                    <Button size="small" onClick={() => message.info('暂不支持其他语速')}>慢</Button>
-                    <Button 
-                      size="small"
-                      onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.0 }))}
-                      style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        color: '#ffffff',
-                        borderColor: 'transparent',
-                        boxShadow: '0 2px 8px rgba(118, 75, 162, 0.35)'
-                      }}
-                    >
-                      正常
-                    </Button>
-                    <Button size="small" onClick={() => message.info('暂不支持其他语速')}>快</Button>
+                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 0.5 }))}>0.5x</Button>
+                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.0 }))}>1.0x</Button>
+                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 1.5 }))}>1.5x</Button>
+                    <Button size="small" onClick={() => setSettings(prev => ({ ...prev, speakingSpeed: 2.0 }))}>2.0x</Button>
                   </Button.Group>
                 </div>
               </div>
@@ -914,7 +888,7 @@ const DigitalJiagengPage: React.FC = () => {
               })()}
 
               {/* 字幕开关 */}
-              {/* <div 
+              <div 
                 style={{ 
                   position: 'absolute', 
                   top: '16px', 
@@ -932,7 +906,7 @@ const DigitalJiagengPage: React.FC = () => {
                     onChange={(checked) => setSettings(prev => ({ ...prev, showSubtitles: checked }))}
                   />
                 </Space>
-              </div> */}
+              </div>
             </div>
 
             {/* 移除页面下方字幕组件，仅保留浮层 */}

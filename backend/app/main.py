@@ -2,10 +2,10 @@
 闽台方言大模型系统 - FastAPI后端主入口
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import os
 from pathlib import Path
 import logging
@@ -15,40 +15,11 @@ import sys
 from app.routers import asr_tts, speech_translation, voice_interaction, voice_cloning, digital_jiageng
 from app.routers import auth as auth_router
 from app.core.config import settings
+from app.core.config import configure_logging
 from app.core.db import Base, engine
 
 # 创建FastAPI应用实例
-def _setup_logging():
-    """确保自定义模块日志可见。
-    - 将root logger设为DEBUG
-    - 若无stdout的StreamHandler则添加一个
-    - 指定关键模块logger为DEBUG
-    """
-    root = logging.getLogger()
-    # 全局改为 INFO，避免第三方库的 DEBUG 噪音
-    root.setLevel(logging.INFO)
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
-        sh = logging.StreamHandler(sys.stdout)
-        sh.setLevel(logging.DEBUG)
-        sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-        root.addHandler(sh)
-    # 我们关心的模块设为 INFO（关键步骤仍会打印）
-    for name in [
-        "app.routers.digital_jiageng",
-        "app.services.asr_service",
-        "app.services.tts_service",
-        "app.services.llm_service",
-    ]:
-        logging.getLogger(name).setLevel(logging.INFO)
-
-    # 第三方库降噪
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-
-
-_setup_logging()
+configure_logging()
 
 app = FastAPI(
     title="闽台方言大模型API",
@@ -64,7 +35,9 @@ Base.metadata.create_all(bind=engine)
 # 配置CORS中间件，允许前端跨域访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # 前端开发服务器地址
+    # allow_origins=["http://localhost:5173", 
+    #                "http://115.190.116.189",],      
+    allow_origins= ["*"],        
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,6 +57,16 @@ app.include_router(voice_interaction.router, prefix="/api/voice-interaction", ta
 app.include_router(voice_cloning.router, prefix="/api/voice-cloning", tags=["音色克隆"])
 app.include_router(digital_jiageng.router, tags=["数字嘉庚"])
 app.include_router(auth_router.router, prefix="/api", tags=["鉴权与用户"])
+
+# 统一异常返回格式：将所有 HTTPException 和未捕获异常统一包装为 {success, message, data}
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"success": False, "message": exc.detail, "data": None})
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger(__name__).exception("Unhandled exception: %s", str(exc))
+    return JSONResponse(status_code=500, content={"success": False, "message": "内部服务错误", "data": None})
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -148,5 +131,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level=(settings.log_level or "info").lower()
     ) 

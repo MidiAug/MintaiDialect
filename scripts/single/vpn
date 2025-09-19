@@ -1,0 +1,4 @@
+cd ~/.config/mihomo
+./clash-linux
+
+wget -U "Mozilla/6.0" -O ~/.config/mihomo/config.yaml "https://v1.v2ai.top/link/OZUpESmIRbY3JxBPB9NMQJUdgJhxeXK2BUxl?clash=2"

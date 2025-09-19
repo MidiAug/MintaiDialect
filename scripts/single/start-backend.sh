@@ -1,8 +1,27 @@
 #!/bin/bash
 
-echo "🔧 启动后端API服务 (端口: 8000)"
+# --- 环境变量配置 ---
+# 代理服务器地址
+PROXY_URL="http://127.0.0.1:7890"
+# 不需要走代理的地址 (本地地址, 内网IP段等)
+NO_PROXY="localhost,127.0.0.1,::1"
+
+# --- 服务启动 ---
+echo "🔧 准备启动后端API服务 (端口: 8000)"
 cd backend
-# 固定 Python 模块查找路径为当前 backend 目录，避免误加载其它路径同名模块
+
+# 将当前目录添加到Python模块搜索路径
 export PYTHONPATH="$(pwd)"
-# 明确指定热重载监控目录为当前 backend 目录，并提升日志级别为 debug
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir "$(pwd)" --log-level debug
+
+echo "🚀 使用代理 ${PROXY_URL} 启动服务..."
+# 使用 exec 启动 uvicorn，并将代理环境变量传递给它
+exec env \
+  http_proxy="${PROXY_URL}" \
+  https_proxy="${PROXY_URL}" \
+  no_proxy="${NO_PROXY}" \
+  uvicorn app.main:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --reload \
+  --reload-dir "$(pwd)" \
+  --log-level debug

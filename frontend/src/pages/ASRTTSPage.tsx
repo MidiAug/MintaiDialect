@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Spin } from 'antd'
 import { 
   Typography, 
   Card, 
@@ -12,21 +13,17 @@ import {
   Divider,
   Row,
   Col,
-  Progress,
   Alert,
-  Tag,
-  Switch
+  Tag
 } from 'antd'
 import { 
-  UploadOutlined, 
   AudioOutlined, 
   PlayCircleOutlined,
   DownloadOutlined,
   ClearOutlined,
-  SettingOutlined,
   SoundOutlined
 } from '@ant-design/icons'
-import { asrTtsAPI, LanguageType } from '@/services/api'
+import { asrTtsAPI, LanguageType, AudioFormat, ApiResponse } from '@/services/api'
 
 const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
@@ -34,7 +31,6 @@ const { TabPane } = Tabs
 
 interface ASRResult {
   text: string
-  confidence: number
   language: LanguageType
   duration: number
   timestamps?: any[]
@@ -46,6 +42,8 @@ interface TTSResult {
   audio_duration: number
   file_size: number
   audio_format: string
+  poj_text?: string
+  zh_text?: string
 }
 
 const ASRTTSPage: React.FC = () => {
@@ -54,8 +52,6 @@ const ASRTTSPage: React.FC = () => {
   const [asrFile, setAsrFile] = useState<File | null>(null)
   const [asrResult, setAsrResult] = useState<ASRResult | null>(null)
   const [asrLanguage, setAsrLanguage] = useState<LanguageType>(LanguageType.MINNAN)
-  const [enableTimestamps, setEnableTimestamps] = useState(false)
-  const [enableWordLevel, setEnableWordLevel] = useState(false)
 
   // TTS 相关状态
   const [ttsLoading, setTtsLoading] = useState(false)
@@ -63,7 +59,8 @@ const ASRTTSPage: React.FC = () => {
   const [ttsResult, setTtsResult] = useState<TTSResult | null>(null)
   const [ttsLanguage, setTtsLanguage] = useState<LanguageType>(LanguageType.MINNAN)
   const [voiceSpeed, setVoiceSpeed] = useState(1.0)
-  const [voicePitch, setVoicePitch] = useState(1.0)
+  const [audioFormat, setAudioFormat] = useState('wav')
+  const [pojText, setPojText] = useState('')
 
   // 语言选项
   const languageOptions = [
@@ -71,6 +68,15 @@ const ASRTTSPage: React.FC = () => {
     { label: '客家话', value: LanguageType.HAKKA },
     { label: '台湾话', value: LanguageType.TAIWANESE },
     { label: '普通话', value: LanguageType.MANDARIN },
+  ]
+
+  // 音频格式选项
+  const audioFormatOptions = [
+    { label: 'WAV', value: 'wav' },
+    { label: 'MP3', value: 'mp3' },
+    { label: 'FLAC', value: 'flac' },
+    { label: 'M4A', value: 'm4a' },
+    { label: 'OGG', value: 'ogg' },
   ]
 
   // ASR 处理函数
@@ -85,9 +91,7 @@ const ASRTTSPage: React.FC = () => {
       const response = await asrTtsAPI.speechToText({
         audio_file: asrFile,
         source_language: asrLanguage,
-        enable_timestamps: enableTimestamps,
-        enable_word_level: enableWordLevel,
-      })
+      }) as unknown as ApiResponse<ASRResult>
 
       if (response.success) {
         setAsrResult(response.data)
@@ -116,11 +120,12 @@ const ASRTTSPage: React.FC = () => {
         text: ttsText,
         target_language: ttsLanguage,
         speed: voiceSpeed,
-        pitch: voicePitch,
-      })
+        audio_format: audioFormat as AudioFormat,
+      }) as unknown as ApiResponse<TTSResult>
 
       if (response.success) {
         setTtsResult(response.data)
+        setPojText(response.data?.poj_text || '')
         message.success('语音合成完成！')
       } else {
         message.error(response.message || '语音合成失败')
@@ -133,6 +138,9 @@ const ASRTTSPage: React.FC = () => {
     }
   }
 
+  // 支持的音频格式（与后端AudioFormat枚举保持一致）
+  const supportedAudioFormats = ['wav', 'mp3', 'flac', 'm4a', 'ogg']
+  
   // 音频上传配置
   const uploadProps = {
     name: 'file',
@@ -145,18 +153,27 @@ const ASRTTSPage: React.FC = () => {
       size: asrFile.size
     }] : [],
     beforeUpload: (file: File) => {
-      const isAudio = file.type.startsWith('audio/') || 
-                     ['wav', 'mp3', 'flac', 'm4a', 'ogg'].some(ext => 
-                       file.name.toLowerCase().endsWith(`.${ext}`))
-      
-      if (!isAudio) {
-        message.error('请上传音频文件！')
+      // 检查文件扩展名
+      const fileExtension = file.name.toLowerCase().split('.').pop()
+      if (!fileExtension || !supportedAudioFormats.includes(fileExtension)) {
+        message.error(`不支持的音频格式: ${fileExtension || '未知'}。支持的格式: ${supportedAudioFormats.join(', ')}`)
         return false
       }
 
-      const isLt50M = file.size / 1024 / 1024 < 50
-      if (!isLt50M) {
-        message.error('文件大小不能超过 50MB！')
+      // 检查MIME类型（额外验证）
+      const isAudio = file.type.startsWith('audio/') || 
+                     supportedAudioFormats.some(ext => 
+                       file.name.toLowerCase().endsWith(`.${ext}`))
+      
+      if (!isAudio) {
+        message.error('请上传有效的音频文件！')
+        return false
+      }
+
+      // 文件大小校验：限制为10MB
+      const maxSize = 10 * 1024 * 1024 // 10MB
+      if (file.size > maxSize) {
+        message.error(`文件大小不能超过 10MB！当前文件大小: ${(file.size / 1024 / 1024).toFixed(2)}MB`)
         return false
       }
 
@@ -178,6 +195,29 @@ const ASRTTSPage: React.FC = () => {
   const clearTTSResult = () => {
     setTtsResult(null)
     setTtsText('')
+    setPojText('')
+  }
+
+  // 使用 fetch + Blob 下载，兼容跨域和现代浏览器
+  const downloadAudio = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error('下载失败')
+      const blob = await response.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      console.error(err)
+      message.error('下载失败，请重试')
+    }
   }
 
   return (
@@ -205,7 +245,7 @@ const ASRTTSPage: React.FC = () => {
                       </p>
                       <p className="ant-upload-text">点击或拖拽音频文件到此区域</p>
                       <p className="ant-upload-hint">
-                        支持 WAV, MP3, FLAC, M4A, OGG 格式，最大 50MB
+                        支持 WAV, MP3, FLAC, M4A, OGG 格式，最大 10MB<br/>
                       </p>
                     </Upload.Dragger>
                     {asrFile && (
@@ -233,25 +273,9 @@ const ASRTTSPage: React.FC = () => {
                             onChange={setAsrLanguage}
                             options={languageOptions}
                             style={{ width: '100%', marginTop: 4 }}
+                            open={false}
+                            onClick={() => message.info('暂不支持其他语言')}
                           />
-                        </Col>
-                        <Col span={12}>
-                          <Space>
-                            <Switch
-                              checked={enableTimestamps}
-                              onChange={setEnableTimestamps}
-                            />
-                            <Text>时间戳</Text>
-                          </Space>
-                        </Col>
-                        <Col span={12}>
-                          <Space>
-                            <Switch
-                              checked={enableWordLevel}
-                              onChange={setEnableWordLevel}
-                            />
-                            <Text>词级信息</Text>
-                          </Space>
                         </Col>
                       </Row>
                     </div>
@@ -263,7 +287,6 @@ const ASRTTSPage: React.FC = () => {
                   <Space>
                     <Button
                       type="primary"
-                      size="large"
                       loading={asrLoading}
                       onClick={handleASR}
                       disabled={!asrFile}
@@ -285,9 +308,8 @@ const ASRTTSPage: React.FC = () => {
             <Col xs={24} lg={12}>
               <Card title="识别结果" className="mb-16">
                 {asrLoading && (
-                  <div className="loading-container">
-                    <Progress type="circle" percent={75} />
-                    <div className="loading-text">正在识别语音，请稍候...</div>
+                  <div className="loading-container" style={{ textAlign: 'center', padding: '40px 0' }}>
+                    <Spin size="large" tip="正在识别语音，请稍候..." />
                   </div>
                 )}
 
@@ -303,42 +325,22 @@ const ASRTTSPage: React.FC = () => {
                         />
                       </div>
                     </div>
-
+                    
                     <div className="result-item">
-                      <div className="result-label">置信度:</div>
+                          <div className="result-label">音频时长:</div>
                       <div className="result-content">
-                        <Progress 
-                          percent={Math.round(asrResult.confidence * 100)} 
-                          size="small"
-                          status={asrResult.confidence > 0.8 ? 'success' : 'normal'}
-                        />
+                        {typeof asrResult.duration === 'number' ? asrResult.duration.toFixed(2) + ' 秒' : '—'}
                       </div>
                     </div>
 
-                    <div className="result-item">
-                      <div className="result-label">检测语言:</div>
-                      <div className="result-content">
-                        <Tag color="blue">
-                          {languageOptions.find(l => l.value === asrResult.language)?.label}
-                        </Tag>
-                      </div>
-                    </div>
-
-                    <div className="result-item">
-                      <div className="result-label">音频时长:</div>
-                      <div className="result-content">
-                        {asrResult.duration.toFixed(2)} 秒
-                      </div>
-                    </div>
-
-                    {asrResult.timestamps && (
+                    {Array.isArray(asrResult.timestamps) && (
                       <div className="result-item">
                         <div className="result-label">时间戳:</div>
                         <div className="result-content">
                           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                             {asrResult.timestamps.map((item, index) => (
                               <div key={index} style={{ marginBottom: 4 }}>
-                                <Tag size="small">{item.start.toFixed(1)}s-{item.end.toFixed(1)}s</Tag>
+                                <Tag>{typeof item.start === 'number' ? item.start.toFixed(1) : '-'}s-{typeof item.end === 'number' ? item.end.toFixed(1) : '-'}s</Tag>
                                 {item.word}
                               </div>
                             ))}
@@ -355,6 +357,17 @@ const ASRTTSPage: React.FC = () => {
                     <div>上传音频文件开始识别</div>
                   </div>
                 )}
+              </Card>
+              {/* 使用说明（ASR）- 放在识别结果下面 */}
+              <Card title="使用说明" className="mb-16">
+                <ul style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
+                  <li>支持 {supportedAudioFormats.map(f => f.toUpperCase()).join(', ')} 格式音频文件</li>
+                  <li>文件大小限制为 10MB</li>
+                  <li>非WAV格式会自动转换为WAV格式进行处理</li>
+                  <li>支持闽南话、客家话、台湾话、普通话识别</li>
+                  <li>高精度方言语音识别</li>
+                  <li>上传前会自动校验文件格式和大小</li>
+                </ul>
               </Card>
             </Col>
           </Row>
@@ -394,6 +407,8 @@ const ASRTTSPage: React.FC = () => {
                             onChange={setTtsLanguage}
                             options={languageOptions}
                             style={{ width: '100%', marginTop: 4 }}
+                            open={false}
+                            onClick={() => message.info('暂不支持其他语言')}
                           />
                         </Col>
                         <Col span={12}>
@@ -408,14 +423,13 @@ const ASRTTSPage: React.FC = () => {
                           </div>
                         </Col>
                         <Col span={12}>
-                          <Text>音调: {voicePitch}x</Text>
-                          <div style={{ marginTop: 8 }}>
-                            <Button.Group>
-                              <Button size="small" onClick={() => setVoicePitch(0.5)}>低</Button>
-                              <Button size="small" onClick={() => setVoicePitch(1.0)}>正常</Button>
-                              <Button size="small" onClick={() => setVoicePitch(1.5)}>高</Button>
-                            </Button.Group>
-                          </div>
+                          <Text>音频格式:</Text>
+                          <Select
+                            value={audioFormat}
+                            onChange={setAudioFormat}
+                            options={audioFormatOptions}
+                            style={{ width: '100%', marginTop: 4 }}
+                          />
                         </Col>
                       </Row>
                     </div>
@@ -427,7 +441,6 @@ const ASRTTSPage: React.FC = () => {
                   <Space>
                     <Button
                       type="primary"
-                      size="large"
                       loading={ttsLoading}
                       onClick={handleTTS}
                       disabled={!ttsText.trim()}
@@ -449,19 +462,36 @@ const ASRTTSPage: React.FC = () => {
             <Col xs={24} lg={12}>
               <Card title="合成结果" className="mb-16">
                 {ttsLoading && (
-                  <div className="loading-container">
-                    <Progress type="circle" percent={60} />
-                    <div className="loading-text">正在合成语音，请稍候...</div>
+                  <div className="loading-container" style={{ textAlign: 'center', padding: '40px 0' }}>
+                    <Spin size="large" tip="正在合成语音，请稍候..." />
                   </div>
                 )}
 
                 {ttsResult && !ttsLoading && (
                   <div className="result-container">
+                    {pojText && (
+                      <div className="result-item" style={{ marginBottom: 12 }}>
+                        <div className="result-label">POJ 文本:</div>
+                        <div className="result-content">
+                          <TextArea
+                            value={pojText}
+                            autoSize={{ minRows: 2, maxRows: 6 }}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                    )}
                     <div className="result-item">
                       <div className="result-label">音频播放:</div>
                       <div className="result-content">
-                        <audio controls style={{ width: '100%' }}>
-                          <source src={ttsResult.audio_url} type="audio/wav" />
+                        <audio
+                          controls
+                          style={{ width: '100%' }}
+                          preload="metadata"
+                          // 禁用浏览器"更多"菜单项：下载/变速/投放，仅保留播放与音量
+                          controlsList="nodownload noplaybackrate noremoteplayback"
+                        >
+                          <source src={ttsResult.audio_url} />
                           您的浏览器不支持音频播放
                         </audio>
                       </div>
@@ -484,7 +514,7 @@ const ASRTTSPage: React.FC = () => {
                     <div className="result-item">
                       <div className="result-label">音频格式:</div>
                       <div className="result-content">
-                        <Tag color="green">{ttsResult.audio_format.toUpperCase()}</Tag>
+                        <Tag color="green">{(ttsResult.audio_format || ttsResult.audio_url.split('.').pop() || 'wav').toUpperCase()}</Tag>
                       </div>
                     </div>
 
@@ -494,11 +524,11 @@ const ASRTTSPage: React.FC = () => {
                         <Button
                           type="primary"
                           icon={<DownloadOutlined />}
-                          onClick={() => {
-                            const link = document.createElement('a')
-                            link.href = ttsResult.audio_url
-                            link.download = `tts_output.${ttsResult.audio_format}`
-                            link.click()
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const ext = (ttsResult.audio_format || ttsResult.audio_url.split('.').pop() || 'wav')
+                            downloadAudio(ttsResult.audio_url, `tts_output.${ext}`)
                           }}
                         >
                           下载音频
@@ -515,36 +545,21 @@ const ASRTTSPage: React.FC = () => {
                   </div>
                 )}
               </Card>
+              {/* 使用说明（TTS） */}
+              <Card title="使用说明" className="mb-16">
+                <ul style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
+                  <li>支持多种闽台方言语音合成</li>
+                  <li>文本长度限制为 1000 个字符</li>
+                  <li>可调节语音速度和选择音频格式</li>
+                  <li>支持 WAV、MP3、FLAC、M4A、OGG 格式</li>
+                  <li>支持在线播放和下载</li>
+                </ul>
+              </Card>
             </Col>
           </Row>
         </TabPane>
       </Tabs>
 
-      {/* 使用说明 */}
-      <Card title="使用说明" className="mt-24">
-        <Row gutter={[24, 24]}>
-          <Col xs={24} md={12}>
-            <Title level={4}>语音识别 (ASR)</Title>
-            <ul style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
-              <li>支持 WAV, MP3, FLAC, M4A, OGG 格式音频文件</li>
-              <li>文件大小限制为 50MB</li>
-              <li>支持闽南话、客家话、台湾话、普通话识别</li>
-              <li>可选择开启时间戳和词级别信息</li>
-              <li>识别结果包含置信度评分</li>
-            </ul>
-          </Col>
-          <Col xs={24} md={12}>
-            <Title level={4}>文本转语音 (TTS)</Title>
-            <ul style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
-              <li>支持多种闽台方言语音合成</li>
-              <li>文本长度限制为 1000 个字符</li>
-              <li>可调节语音速度和音调</li>
-              <li>生成高质量 WAV 格式音频</li>
-              <li>支持在线播放和下载</li>
-            </ul>
-          </Col>
-        </Row>
-      </Card>
     </div>
   )
 }

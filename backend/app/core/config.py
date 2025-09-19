@@ -5,6 +5,8 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 
 class Settings(BaseSettings):
     """应用配置类"""
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./dialect_ai.db"
     
     # 文件上传配置
-    max_file_size: int = 50 * 1024 * 1024  # 50MB
+    max_file_size: int = 10 * 1024 * 1024  # 10MB
     upload_dir: str = "uploads"
     allowed_audio_formats: List[str] = ["wav", "mp3", "flac", "m4a", "ogg", "webm"]
     
@@ -47,24 +49,30 @@ class Settings(BaseSettings):
     # LLM 默认走云厂商分支（DeepSeek），也可通过环境变量切换或指定本地 llm_service_url
     llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
     
-    provider_name: str = os.getenv("PROVIDER_NAME", "deepseek")
-    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-f20295f5bd454c8fbb40409865669884")
+    provider_name: str = os.getenv("PROVIDER_NAME", "gemini")
+    GEMINI_API_KEYS: str = os.getenv("GEMINI_API_KEYS", "AIzaSyCKXieYCpsOyMHTpj2UFs7I5Be__egAGq0,AIzaSyBm1MMLkgmJhBcZVyhEp58IdXXI-tsCZFs")
+    provider_api_key: str = os.getenv("PROVIDER_API_KEY", "AIzaSyCKXieYCpsOyMHTpj2UFs7I5Be__egAGq0")
+    llm_model_name: str = os.getenv("LLM_MODEL_NAME", "gemini-2.5-flash")
+    
+    # provider_name: str = os.getenv("PROVIDER_NAME", "deepseek")
+    # llm_model_name: str = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+    # provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-f20295f5bd454c8fbb40409865669884")
 
     # provider_name: str = os.getenv("PROVIDER_NAME", "qwen")
+    # llm_model_name: str = os.getenv("LLM_MODEL_NAME", "qwen-max")
     # provider_api_key: str = os.getenv("PROVIDER_API_KEY", "sk-75c80f6957ca4655a2033fc5cda4bb3c")
 
     # 统一的请求配置
     model_request_timeout: int = 60  # 秒
     # LLM厂商配置
     # DeepSeek（默认）
-    deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
+    deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "")
     llm_model_name: str = os.getenv("LLM_MODEL_NAME", "")
-    
-    # Gemini（保留：当 provider_name=gemini 时使用）
-    gemini_api_base: str = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 
     # 数字嘉庚相关：检索内容文件路径（默认硬编码到仓库内）
-    jiageng_retrieval_path: str = "knowledge/digital_jiageng.txt"
+    jiageng_stories_path: str = "data/jiageng_stories.txt"
+    minnan_examples_path: str = "data/minnan_examples.json"
+    minnan_lexicon_path: str = "data/minnan_lexicon.json"
     
     # 音频处理配置
     audio_sample_rate: int = 16000
@@ -75,7 +83,7 @@ class Settings(BaseSettings):
     cache_ttl: int = 3600  # 1小时
     
     # 日志配置
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"
     log_file: str = "logs/app.log"
     
     # 安全配置
@@ -121,3 +129,60 @@ def ensure_directories():
 
 # 初始化目录
 ensure_directories() 
+
+
+# 日志统一初始化（集中式）
+def configure_logging():
+    """
+    依据 Settings 中的 log_level 与 log_file 统一配置日志：
+    - 设置 root logger 等级
+    - 标准输出与文件（可轮转）双通道输出
+    - 第三方库降噪
+    可重复调用，具备幂等性（会复用已有 handler 并更新其等级与格式）。
+    """
+    level_name = (settings.log_level or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # 控制台输出（存在则更新，没有则添加）
+    stream_handler = None
+    for h in root_logger.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            stream_handler = h
+            break
+    if stream_handler is None:
+        stream_handler = logging.StreamHandler()
+        root_logger.addHandler(stream_handler)
+    stream_handler.setLevel(level)
+    stream_handler.setFormatter(formatter)
+
+    # 文件输出（轮转），存在则更新，没有则添加
+    log_file_path = settings.log_file or "logs/app.log"
+    try:
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    except Exception:
+        pass
+
+    file_handler = None
+    for h in root_logger.handlers:
+        if isinstance(h, logging.FileHandler):
+            file_handler = h
+            break
+    if file_handler is None:
+        file_handler = RotatingFileHandler(log_file_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+        root_logger.addHandler(file_handler)
+    file_handler.setLevel(level)
+    file_handler.setFormatter(formatter)
+
+    # 第三方库降噪
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

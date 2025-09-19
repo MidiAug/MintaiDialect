@@ -63,27 +63,12 @@ export interface ApiResponse<T> {
   timestamp?: string
 }
 
-// Mock API调用函数（用于开发和测试）
-const mockApiCall = <T>(data: T, delay: number = 1000): Promise<ApiResponse<T>> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        success: true,
-        message: '操作成功',
-        data,
-        timestamp: new Date().toISOString()
-      })
-    }, delay)
-  })
-}
 
 // ============ ASR/TTS API ============
 
 export interface ASRRequest {
   audio_file: File
   source_language?: LanguageType
-  enable_timestamps?: boolean
-  enable_word_level?: boolean
 }
 
 export interface TTSRequest {
@@ -91,7 +76,6 @@ export interface TTSRequest {
   target_language?: LanguageType
   voice_style?: string
   speed?: number
-  pitch?: number
   audio_format?: AudioFormat
 }
 
@@ -101,17 +85,23 @@ export const asrTtsAPI = {
     const formData = new FormData()
     formData.append('audio_file', data.audio_file)
     formData.append('source_language', data.source_language || LanguageType.MINNAN)
-    formData.append('enable_timestamps', String(data.enable_timestamps || false))
-    formData.append('enable_word_level', String(data.enable_word_level || false))
     
     return api.post('/asr-tts/asr', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    }) as unknown as Promise<ApiResponse<any>>
   },
 
-  // 文本转语音
+  // 文本转语音（返回 JSON，其中包含 audio_url 等信息）
   textToSpeech: (data: TTSRequest) => {
-    return api.post('/asr-tts/tts', data)
+    const formData = new FormData()
+    formData.append('text', data.text)
+    formData.append('target_language', data.target_language || 'minnan')
+    formData.append('speed', String(data.speed || 1))
+    formData.append('audio_format', data.audio_format || 'wav')
+
+    return api.post('/asr-tts/tts', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }) as unknown as Promise<ApiResponse<any>>
   },
 
   // 批量语音识别
@@ -124,7 +114,7 @@ export const asrTtsAPI = {
     
     return api.post('/asr-tts/batch-asr', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    }) as unknown as Promise<ApiResponse<any>>
   },
 
   // 音频质量检测
@@ -134,7 +124,7 @@ export const asrTtsAPI = {
     
     return api.post('/asr-tts/audio-quality', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    }) as unknown as Promise<ApiResponse<any>>
   },
 }
 
@@ -356,16 +346,11 @@ export interface DigitalJiagengChatRequest {
 }
 
 export interface DigitalJiagengChatResponse {
-  response_text: string
   response_audio_url?: string
-  emotion: string
-  confidence: number
-  processing_time: number
-  subtitle_text?: string
   subtitles: Array<{
     text: string
-    start_time: number  // 开始时间(秒)
-    end_time: number    // 结束时间(秒)
+    start_time: number
+    end_time: number
   }>
 }
 
@@ -383,6 +368,7 @@ export const digitalJiagengAPI = {
     formData.append('speaking_speed', String(data.settings.speaking_speed))
     formData.append('show_subtitles', String(data.settings.show_subtitles))
 
+    console.debug('[API] /digital-jiageng/chat formData:', Array.from(formData.keys()))
     return api.post('/digital-jiageng/chat', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

@@ -22,3 +22,15 @@ conda activate mintai
 cd MintaiDialect
 conda activate mintai
 ./scripts/single/start-frontend.sh
+
+# 终端6 - vpn
+kill -9 $(lsof -t -i :7890)
+cd ~/.config/mihomo
+./clash-linux
+
+wget -U "Mozilla/6.0" -O ~/.config/mihomo/config.yaml "https://v1.v2ai.top/link/OZUpESmIRbY3JxBPB9NMQJUdgJhxeXK2BUxl?clash=2"
+
+# 终端7 - swagger
+cd MintaiDialect
+conda activate mintai
+python3 -m http.server 3000

@@ -1,7 +1,15 @@
 import React from 'react'
 import { Layout, Menu, Typography, Button, Dropdown } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { UserOutlined, HomeOutlined, LogoutOutlined } from '@ant-design/icons'
+import {
+  HomeOutlined,
+  SoundOutlined,
+  TranslationOutlined,
+  MessageOutlined,
+  UserOutlined,
+  ExperimentOutlined,
+  LogoutOutlined,
+} from '@ant-design/icons'
 import { useAuth } from '@/contexts/AuthContext'
 
 const { Header } = Layout
@@ -13,11 +21,12 @@ const JiagengHeader: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth()
 
   const menuItems = [
-    {
-      key: '/',
-      icon: <HomeOutlined />,
-      label: '数字嘉庚',
-    },
+    { key: '/', icon: <UserOutlined />, label: '数字嘉庚' },
+    { key: '/asr-tts', icon: <SoundOutlined />, label: '语音文本互转' },
+    // { key: '/speech-translation', icon: <TranslationOutlined />, label: '语音互译' },
+    // { key: '/voice-interaction', icon: <MessageOutlined />, label: '语音交互' },
+    // { key: '/voice-cloning', icon: <ExperimentOutlined />, label: '音色克隆' },
+    
   ]
 
   const handleMenuClick = ({ key }: { key: string }) => {

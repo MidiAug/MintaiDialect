@@ -24,7 +24,8 @@ function App() {
   return (
     <Layout className="app-layout">
       <ScrollToTop />
-      {isRoot ? <JiagengHeader /> : <AppHeader />}
+      {/* {isRoot ? <JiagengHeader /> : <AppHeader />} */}
+      <JiagengHeader />
       <Content className="main-content">
         <div className="page-container">
           <Routes>
@@ -41,7 +42,7 @@ function App() {
           </Routes>
         </div>
       </Content>
-      {!isRoot && <AppFooter />}
+      {/* {!isRoot && <AppFooter />} */}
     </Layout>
   )
 }

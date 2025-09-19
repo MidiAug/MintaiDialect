@@ -3,20 +3,19 @@ import time
 import logging
 import httpx
 from app.core.config import settings
+from app.core.exceptions import ASRServiceError
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
-async def transcribe(audio_filename: str, audio_bytes: bytes, *, source_language: str,
-                     enable_timestamps: bool = False, enable_word_level: bool = False) -> Dict[str, Any]:
+async def transcribe(audio_filename: str, audio_bytes: bytes, *, source_language: str) -> Dict[str, Any]:
     """
     调用外部 ASR 服务将音频转文字。
 
     返回值约定：尽量兼容不同服务，优先读取 'text'，否则尝试 data.text。
     """
     if not settings.asr_service_url:
-        raise RuntimeError("ASR 服务未配置 (asr_service_url 为空)")
+        raise ASRServiceError("ASR 服务未配置 (asr_service_url 为空)")
 
     # 简单重试 3 次
     last_exc: Exception | None = None
@@ -31,8 +30,6 @@ async def transcribe(audio_filename: str, audio_bytes: bytes, *, source_language
                 }
                 data = {
                     "source_language": source_language,
-                    "enable_timestamps": str(enable_timestamps).lower(),
-                    "enable_word_level": str(enable_word_level).lower(),
                 }
                 # 兼容我们当前 asr_service 的 FastAPI 端点（POST /asr，接收 multipart）
                 logger.debug(
@@ -60,6 +57,6 @@ async def transcribe(audio_filename: str, audio_bytes: bytes, *, source_language
         except Exception as e:
             last_exc = e
             logger.warning("[ASR] attempt=%d failed: %s", attempt, e)
-    raise httpx.HTTPError(f"ASR service failed after retries: {last_exc}")
+    raise ASRServiceError(f"ASR 服务重试失败: {last_exc}")
 
 

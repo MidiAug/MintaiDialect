@@ -1,0 +1,288 @@
+openapi: 3.0.3
+info:
+  title: MintaiDialect API
+  description: 闽台方言语音识别与数字嘉庚对话接口，目前对话可以使用普通话和闽南话作为输入，ASR和TTS暂时只支持闽南语音频和文本互转
+  version: 1.0.0
+
+servers:
+  - url: http://115.190.116.189
+
+security:
+  - BearerAuth: ["admin-token-PbwEQUSPXLY"]
+
+paths:
+  /api/digital-jiageng/chat:
+    post:
+      summary: 与数字嘉庚对话
+      description: 上传音频文件与数字嘉庚进行对话。支持可选字幕返回（show_subtitles=true 时返回）。
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/JiagengChatRequest"
+      responses:
+        "200":
+          description: 对话成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponseJiageng"
+              example:
+                success: true
+                message: "操作成功"
+                data:
+                  response_audio_url: "/uploads/jiageng.wav"
+                  subtitles:
+                    - text: "您好，我是嘉庚"
+                      start_time: 0.0
+                      end_time: 0.8
+                    - text: "今天"
+                      start_time: 0.8
+                      end_time: 1.5
+        "400":
+          description: 缺少必要输入或参数不合法（如音频格式不支持、文件过大）
+        "502":
+          description: ASR识别失败或LLM/TTS 生成失败
+
+  /api/asr-tts/asr:
+    post:
+      summary: 语音识别 (ASR)
+      description: 上传音频文件并指定语种，调用 ASR 服务进行语音识别，返回识别文本与真实音频时长（秒）。
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ASRRequest"
+      responses:
+        "200":
+          description: 识别成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponseASR"
+              example:
+                success: true
+                message: "语音识别完成"
+                data:
+                  text: "你好，世界"
+                  duration: 2.53
+        "400":
+          description: 参数或文件不合法
+        "502":
+          description: ASR 服务调用失败
+
+  /api/asr-tts/tts:
+    post:
+      summary: 文本转语音 (TTS)
+      description: 将文本转换为目标方言语音，返回对应的 POJ 发音与可播放的音频 URL（时长为估算）。
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/TTSRequest"
+      responses:
+        "200":
+          description: 合成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponseTTS"
+              example:
+                success: true
+                message: "文本转语音完成"
+                data:
+                  audio_url: "/uploads/tts_xxx.wav"
+                  audio_duration: 1.68
+                  file_size: 123456
+                  audio_format: "wav"
+                  poj_text: "Li2-ho2 se3-kai1"
+        "400":
+          description: 参数不合法（如文本长度超过1000字符）
+        "502":
+          description: LLM 或 TTS 服务调用失败
+
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT  # 可选，表示 token 格式
+  schemas:
+    JiagengChatRequest:
+      type: object
+      required:
+        - audio_file
+      properties:
+        audio_file:
+          type: string
+          format: binary
+          description: 前端录音文件（音频格式）
+        input_language:
+          type: string
+          enum: [minnan, mandarin, hakka, taiwanese]
+          default: minnan
+          description: 输入的语种（minnan选项同时可以识别普通话）
+        output_language:
+          type: string
+          enum: [minnan, mandarin, hakka, taiwanese]
+          default: minnan
+          description: 数字人回复的方言语种（目前只支持闽南话）
+        speaking_speed:
+          type: number
+          format: float
+          default: 1.0
+          description: 数字人语速
+          minimum: 0.5
+          maximum: 2.0
+        show_subtitles:
+          type: boolean
+          default: true
+          description: 是否返回字幕
+
+    BaseResponseJiageng:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "操作成功"
+        data:
+          type: object
+          properties:
+            response_audio_url:
+              type: string
+              example: "/uploads/jiageng.wav"
+            subtitles:
+              type: array
+              items:
+                type: object
+                properties:
+                  text:
+                    type: string
+                    example: "您好，我是嘉庚"
+                  start_time:
+                    type: number
+                    format: float
+                    example: 0.0
+                  end_time:
+                    type: number
+                    format: float
+                    example: 0.8
+
+    ASRRequest:
+      type: object
+      required:
+        - audio_file
+        - source_language
+      properties:
+        audio_file:
+          type: string
+          format: binary
+          description: 音频文件（支持 wav/mp3/flac/m4a/ogg 格式）
+        source_language:
+          type: string
+          enum: [minnan]
+          default: minnan
+          description: 语音识别语种（目前只支持minnan）
+
+
+    BaseResponseASR:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "语音识别完成"
+        data:
+          type: object
+          properties:
+            text:
+              type: string
+              example: "你好，世界"
+              description: 识别的文本
+            duration:
+              type: number
+              format: float
+              example: 2.53
+              description: 真实音频时长（秒）
+  
+    TTSRequest:
+      type: object
+      required:
+        - text
+        - target_language
+        - audio_format
+      properties:
+        text:
+          type: string
+          example: "你好世界"
+          description: 要合成的文本（最大1000字符）
+          maxLength: 1000
+        target_language:
+          type: string
+          enum: [minnan]
+          example: "minnan"
+          description: 目标语言(目前只支持minnan)
+        speed:
+          type: number
+          format: float
+          example: 1.0
+          description: 语速，默认 1.0
+          minimum: 0.5
+          maximum: 2.0
+        audio_format:
+          type: string
+          enum: [wav, mp3, flac, m4a, ogg]
+          example: "wav"
+          description: 输出音频格式，如 wav, mp3, flac, m4a, ogg
+
+    BaseResponseTTS:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 消息
+          example: "文本转语音完成"
+        data:
+          type: object
+          properties:
+            audio_url:
+              description: 音频URL
+              type: string
+              example: "/uploads/tts_xxx.wav"
+            audio_duration:
+              description: 音频时长（估算）
+              type: number
+              format: float
+              example: 1.68
+            file_size:
+              description: 文件大小（字节）
+              type: integer
+              example: 123456
+            audio_format:
+              description: 实际音频格式
+              type: string
+              example: "wav"
+            poj_text:
+              description: POJ发音
+              type: string
+              example: "Li2-ho2 se3-kai1"
+

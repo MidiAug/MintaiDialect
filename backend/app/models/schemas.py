@@ -45,25 +45,18 @@ class ASRRequest(BaseModel):
     """语音识别请求模型"""
     audio_file: str = Field(..., description="音频文件路径或base64编码")
     source_language: LanguageType = Field(default=LanguageType.MINNAN, description="源语言")
-    enable_timestamps: bool = Field(default=False, description="是否包含时间戳")
-    enable_word_level: bool = Field(default=False, description="是否包含词级别信息")
 
 class ASRResponse(BaseModel):
     """语音识别响应模型"""
     text: str = Field(..., description="识别出的文本")
-    confidence: float = Field(..., description="置信度", ge=0, le=1)
-    language: LanguageType = Field(..., description="检测到的语言")
     duration: float = Field(..., description="音频时长(秒)")
-    timestamps: Optional[List[Dict[str, Any]]] = Field(None, description="时间戳信息")
-    words: Optional[List[Dict[str, Any]]] = Field(None, description="词级别信息")
+
 
 class TTSRequest(BaseModel):
     """文本转语音请求模型"""
     text: str = Field(..., description="要转换的文本", min_length=1)
     target_language: LanguageType = Field(default=LanguageType.MINNAN, description="目标语言")
-    voice_style: Optional[str] = Field(default="default", description="语音风格")
     speed: float = Field(default=1.0, description="语音速度", ge=0.5, le=2.0)
-    pitch: float = Field(default=1.0, description="音调", ge=0.5, le=2.0)
     audio_format: AudioFormat = Field(default=AudioFormat.WAV, description="输出音频格式")
 
 class TTSResponse(BaseModel):
@@ -71,9 +64,29 @@ class TTSResponse(BaseModel):
     audio_url: str = Field(..., description="生成的音频文件URL")
     audio_duration: float = Field(..., description="音频时长(秒)")
     file_size: int = Field(..., description="文件大小(字节)")
-    audio_format: AudioFormat = Field(..., description="音频格式")
+    poj_text: Optional[str] = Field(None, description="用于合成的POJ文本")
+    audio_format: AudioFormat = Field(default=AudioFormat.WAV, description="实际音频格式")
 
 # ============ 语音翻译相关模型 ============
+
+# ============ 数字嘉庚相关模型 ============
+
+class DigitalJiagengSubtitle(BaseModel):
+    text: str = Field(..., description="字幕文本")
+    start_time: float = Field(..., description="开始时间(秒)")
+    end_time: float = Field(..., description="结束时间(秒)")
+
+class DigitalJiagengResponse(BaseModel):
+    response_audio_url: Optional[str] = Field(None, description="回复音频URL")
+    subtitles: List[DigitalJiagengSubtitle] = Field(default_factory=list, description="字幕列表")
+
+class DigitalJiagengChatRequest(BaseModel):
+    """数字嘉庚对话请求模型"""
+    text_input: Optional[str] = Field(None, description="文本输入")
+    input_language: LanguageType = Field(default=LanguageType.MINNAN, description="输入语言")
+    output_language: LanguageType = Field(default=LanguageType.MINNAN, description="输出语言")
+    speaking_speed: float = Field(default=1.0, description="语音速度", ge=0.5, le=2.0)
+    show_subtitles: bool = Field(default=False, description="是否显示字幕")
 
 class SpeechTranslationRequest(BaseModel):
     """语音翻译请求模型"""
