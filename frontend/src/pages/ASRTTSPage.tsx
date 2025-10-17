@@ -518,23 +518,6 @@ const ASRTTSPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="result-item">
-                      <div className="result-label">下载:</div>
-                      <div className="result-content">
-                        <Button
-                          type="primary"
-                          icon={<DownloadOutlined />}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            const ext = (ttsResult.audio_format || ttsResult.audio_url.split('.').pop() || 'wav')
-                            downloadAudio(ttsResult.audio_url, `tts_output.${ext}`)
-                          }}
-                        >
-                          下载音频
-                        </Button>
-                      </div>
-                    </div>
                   </div>
                 )}
 

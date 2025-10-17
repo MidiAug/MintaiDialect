@@ -11,6 +11,8 @@ __all__ = [
     "asr_service",
     "tts_service",
     "llm_service",
+    "subtitle_service",
+    "mock_service",
 ]
 
 

@@ -56,6 +56,15 @@ html, body {
   position: relative;
 }
 
+.main-container {
+  flex: 1;
+  padding: 24px 24px 0 24px;
+  background: #f5f5f5;
+  /* 确保主内容区域滚动正常 */
+  overflow-x: hidden;
+  position: relative;
+}
+
 .main-content {
   flex: 1;
   padding: 24px;
@@ -79,6 +88,10 @@ html, body {
 
 /* 响应式布局 */
 @media (max-width: 768px) {
+  .main-container {
+    padding: 12px 12px 0 12px;
+  }
+  
   .main-content {
     padding: 12px;
   }
@@ -96,6 +109,15 @@ html, body {
   text-align: center;
 }
 
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* 间距类 */
 .mb-16 {
   margin-bottom: 16px;
 }
@@ -104,12 +126,147 @@ html, body {
   margin-bottom: 24px;
 }
 
+.mb-32 {
+  margin-bottom: 32px;
+}
+
 .mt-16 {
   margin-top: 16px;
 }
 
 .mt-24 {
   margin-top: 24px;
+}
+
+.mt-32 {
+  margin-top: 32px;
+}
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Flexbox 布局类 */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-row {
+  flex-direction: row;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.items-start {
+  align-items: flex-start;
+}
+
+.items-end {
+  align-items: flex-end;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-start {
+  justify-content: flex-start;
+}
+
+.justify-end {
+  justify-content: flex-end;
+}
+
+/* Gap 间距 */
+.gap-2 {
+  gap: 8px;
+}
+
+.gap-4 {
+  gap: 16px;
+}
+
+.gap-6 {
+  gap: 24px;
+}
+
+.gap-8 {
+  gap: 32px;
+}
+
+/* 过渡动画 */
+.transition-all {
+  transition: all 0.3s ease;
+}
+
+.transition-colors {
+  transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.duration-200 {
+  transition-duration: 200ms;
+}
+
+.duration-300 {
+  transition-duration: 300ms;
+}
+
+.ease-out {
+  transition-timing-function: ease-out;
+}
+
+.ease-in {
+  transition-timing-function: ease-in;
+}
+
+/* 宽度和高度 */
+.w-full {
+  width: 100%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+/* 圆角 */
+.rounded {
+  border-radius: 4px;
+}
+
+.rounded-lg {
+  border-radius: 8px;
+}
+
+.rounded-xl {
+  border-radius: 12px;
+}
+
+.rounded-full {
+  border-radius: 50%;
+}
+
+/* 阴影 */
+.shadow-sm {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-lg {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
 /* 音频播放器样式 */
@@ -316,4 +473,7 @@ html, body {
     height: 60px;
     font-size: 20px;
   }
-} 
+}
+
+/* 导入新首页样式 */
+@import './styles/new-home.css'; 

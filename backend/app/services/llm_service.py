@@ -47,12 +47,14 @@ def register_provider(name: str):
 # -------------------------------
 # 轮流使用 API Key 列表
 # -------------------------------
-API_KEYS: List[str] = [k.strip() for k in settings.GEMINI_API_KEYS.split(",") if k.strip()]
+API_KEYS: List[tuple[int, str]] = [
+    (i, k.strip()) for i, k in enumerate(settings.GEMINI_API_KEYS.split(","), start=1) if k.strip()
+]
 
 if not API_KEYS:
     raise LLMServiceError("请至少在环境变量 GEMINI_API_KEYS 中设置一个有效的 key")
 
-# 创建一个无限循环迭代器
+# 创建一个无限循环迭代器，返回 (index, key)
 api_key_cycle = itertools.cycle(API_KEYS)
 
 # ======================================================
@@ -63,7 +65,11 @@ async def call_gemini(messages: List[Dict[str, str]], model_hint: str | None) ->
     model = model_hint or settings.llm_model_name or "gemini-2.5-flash"
     prompt = "\n".join([m.get("content", "") for m in messages])
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    headers = {"Content-Type": "application/json", "x-goog-api-key": settings.provider_api_key}
+    
+    # 使用迭代器获取 (编号, key)
+    api_index, api_key = next(api_key_cycle)
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"thinkingConfig": {"thinkingBudget": 0}},
@@ -76,27 +82,31 @@ async def call_gemini(messages: List[Dict[str, str]], model_hint: str | None) ->
         dur = (time.monotonic() - start) * 1000
     except Exception as e:
         dur = (time.monotonic() - start) * 1000
-        logger.error("[LLM] Gemini 请求异常: %s (耗时 %.1fms)", e, dur)
+        logger.error("[LLM] Gemini 请求异常 (API #%d): %s (耗时 %.1fms)", api_index, e, dur)
         return {"text": "", "raw": str(e)}
 
     # 处理非 200 状态码
     if resp.status_code != 200:
         logger.error(
-            "[LLM] Gemini 请求失败 status=%d time=%.1fms\nHeaders: %s\nBody: %s",
-            resp.status_code, dur, resp.headers, resp.text[:500]
+            "[LLM] Gemini 请求失败 (API #%d) status=%d time=%.1fms\nHeaders: %s\nBody: %s",
+            api_index, resp.status_code, dur, resp.headers, resp.text[:500]
         )
         return {"text": "", "raw": resp.text}
 
     # 成功响应，解析文本
     try:
         js = resp.json()
-        text = safe_extract(js, "candidates", 0, "content", "parts", 0, "text")
-        logger.info("[LLM] Gemini status=%d time=%.1fms text=%s",
-                    resp.status_code, dur, text[:500])
+        text = safe_extract(js, "candidates", 0, "content", "parts", 0, "text") or ""
+        logger.info(
+            "[LLM] Gemini 成功 (API #%d) status=%d time=%.1fms text=%s",
+            api_index, resp.status_code, dur, text
+            .replace("\n", " ")
+        )
         return {"text": text, "raw": js}
     except Exception as e:
-        logger.error("[LLM] Gemini 解析响应失败: %s\n原始响应: %s", e, resp.text[:500])
+        logger.error("[LLM] Gemini 解析响应失败 (API #%d): %s\n原始响应: %s", api_index, e, resp.text[:500])
         return {"text": "", "raw": resp.text}
+
     
 # @register_provider("deepseek")
 # async def call_deepseek(messages: List[Dict[str, str]], model_hint: str | None) -> Dict[str, Any]:

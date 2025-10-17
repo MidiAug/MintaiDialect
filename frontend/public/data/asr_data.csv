@@ -1,0 +1,4 @@
+instruction,inputAudio,outputText
+提取这段闽南话音频中的文本,/audio/asr/minnan.wav,王总，不用那么着急，先去鼓浪屿玩玩，再来商量生意的事情也来得及
+提取这段福州话音频中的文本,/audio/asr/fuzhou.m4a,你讲慢一点，我听不太清楚
+提取这段莆田话音频中的文本,/audio/asr/putian.wav,你吃饱没，这一碗扁食汤真是好吃

@@ -80,7 +80,7 @@ paths:
   /api/asr-tts/tts:
     post:
       summary: 文本转语音 (TTS)
-      description: 将文本转换为目标方言语音，返回对应的 POJ 发音与可播放的音频 URL（时长为估算）。
+      description: 将文本转换为目标方言语音，返回对应的 POJ 发音、可播放的音频 URL与音频时长。
       security:
         - BearerAuth: []
       requestBody:
@@ -126,7 +126,7 @@ components:
         audio_file:
           type: string
           format: binary
-          description: 前端录音文件（音频格式）
+          description: 前端录音文件（音频格式），文件大小限制10MB
         input_language:
           type: string
           enum: [minnan, mandarin, hakka, taiwanese]
@@ -190,7 +190,7 @@ components:
         audio_file:
           type: string
           format: binary
-          description: 音频文件（支持 wav/mp3/flac/m4a/ogg 格式）
+          description: 音频文件（支持 wav/mp3/flac/m4a/ogg 格式），文件大小限制10MB
         source_language:
           type: string
           enum: [minnan]

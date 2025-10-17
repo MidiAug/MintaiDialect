@@ -1,0 +1,4 @@
+instruction,inputText,outputAudio
+使用闽南话与用户对话,厦门有什么东西最好吃,/audio/dialogue/minnan.wav
+使用福州话与用户对话,我想学习福州话，有什么好的建议吗？,/audio/dialogue/fuzhou.wav
+使用莆田话与用户对话,莆田有什么好玩的地方吗,/audio/dialogue/putian.wav

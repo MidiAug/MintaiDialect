@@ -11,6 +11,7 @@ import {
   LogoutOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/contexts/AuthContext'
+import logoImage from '@/assets/logo.png'
 
 const { Header } = Layout
 const { Title } = Typography
@@ -22,25 +23,13 @@ const AppHeader: React.FC = () => {
 
   // 菜单项配置
   const menuItems = [
-    {
-      key: '/',
-      icon: <HomeOutlined />,
-      label: '首页',
-    },
-    ...(isAuthenticated
-      ? [
-          { key: '/asr-tts', icon: <SoundOutlined />, label: '语音文本互转' },
-          { key: '/speech-translation', icon: <TranslationOutlined />, label: '语音互译' },
-          { key: '/voice-interaction', icon: <MessageOutlined />, label: '语音交互' },
-          { key: '/voice-cloning', icon: <ExperimentOutlined />, label: '音色克隆' },
-          { key: '/digital-jiageng', icon: <UserOutlined />, label: '数字嘉庚' },
-        ]
-      : [])
+    { key: '/', icon: <HomeOutlined />, label: '首页' },
+    { key: '/asr-tts', icon: <SoundOutlined />, label: '语音文本互转' },
+    { key: '/speech-translation', icon: <TranslationOutlined />, label: '语音互译' },
+    { key: '/voice-interaction', icon: <MessageOutlined />, label: '语音交互' },
+    { key: '/voice-cloning', icon: <ExperimentOutlined />, label: '音色克隆' },
+    { key: '/digital-jiageng', icon: <UserOutlined />, label: '数字嘉庚' },
   ]
-
-  const handleMenuClick = ({ key }: { key: string }) => {
-    navigate(key)
-  }
 
   return (
     <Header
@@ -67,32 +56,24 @@ const AppHeader: React.FC = () => {
         }}
         onClick={() => navigate('/')}
       >
-        <div
+        <img
+          src={logoImage}
+          alt="Logo"
           style={{
             width: 40,
             height: 40,
-            background: 'linear-gradient(135deg, #1890ff, #52c41a)',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontSize: '20px',
-            fontWeight: 'bold',
             marginRight: 12,
           }}
-        >
-          方
-        </div>
+        />
         <Title 
           level={4} 
           style={{ 
             margin: 0, 
-            color: '#1890ff',
+            color: '#D6452A',
             fontWeight: 600,
           }}
         >
-          闽台方言大模型
+          闽音智聆
         </Title>
       </div>
 
@@ -102,7 +83,7 @@ const AppHeader: React.FC = () => {
         mode="horizontal"
         selectedKeys={[location.pathname]}
         items={menuItems}
-        onClick={handleMenuClick}
+        onClick={({ key }) => navigate(key)}
         style={{
           flex: 1,
           border: 'none',

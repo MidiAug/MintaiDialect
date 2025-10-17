@@ -10,6 +10,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isAuthenticated } = useAuth()
   const location = useLocation()
 
+  // 公共路径无需鉴权
+  const publicPaths = ['/', '/demo', '/login', '/register']
+  if (publicPaths.includes(location.pathname)) {
+    return children
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }

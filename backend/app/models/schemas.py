@@ -77,12 +77,14 @@ class DigitalJiagengSubtitle(BaseModel):
     end_time: float = Field(..., description="结束时间(秒)")
 
 class DigitalJiagengResponse(BaseModel):
+    session_id: Optional[str] = Field(None, description="会话ID")
     response_audio_url: Optional[str] = Field(None, description="回复音频URL")
     subtitles: List[DigitalJiagengSubtitle] = Field(default_factory=list, description="字幕列表")
 
 class DigitalJiagengChatRequest(BaseModel):
     """数字嘉庚对话请求模型"""
     text_input: Optional[str] = Field(None, description="文本输入")
+    session_id: Optional[str] = Field(None, description="会话ID，用于多轮对话")
     input_language: LanguageType = Field(default=LanguageType.MINNAN, description="输入语言")
     output_language: LanguageType = Field(default=LanguageType.MINNAN, description="输出语言")
     speaking_speed: float = Field(default=1.0, description="语音速度", ge=0.5, le=2.0)

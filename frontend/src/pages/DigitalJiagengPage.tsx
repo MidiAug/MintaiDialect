@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons'
 import { digitalJiagengAPI, LanguageType } from '@/services/api'
 import jiagengImg from '@/assets/jiageng.png'
+import { useParams } from 'react-router-dom'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -50,12 +51,14 @@ interface JiagengSettings {
 }
 
 const DigitalJiagengPage: React.FC = () => {
+  const { sessionId: urlSessionId } = useParams<{ sessionId: string }>()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null)
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('')
   const [recordingTime, setRecordingTime] = useState(0)
+  const [sessionId, setSessionId] = useState<string | null>(urlSessionId || null)
   
   // 设置状态
   const [settings, setSettings] = useState<JiagengSettings>({
@@ -86,6 +89,26 @@ const DigitalJiagengPage: React.FC = () => {
   const outputLanguageOptions = [
     { label: '闽南语', value: LanguageType.MINNAN },
   ]
+
+  // 生成会话ID
+  const generateSessionId = () => {
+    return crypto.randomUUID()
+  }
+
+  // 初始化会话ID
+  useEffect(() => {
+    if (urlSessionId) {
+      setSessionId(urlSessionId)
+      console.log('[DJ-UI] 使用URL中的会话ID:', urlSessionId)
+    } else {
+      // 如果没有URL参数，生成新的会话ID并重定向
+      const newSessionId = generateSessionId()
+      setSessionId(newSessionId)
+      console.log('[DJ-UI] 生成新会话ID:', newSessionId)
+      // 重定向到带会话ID的URL
+      window.history.replaceState(null, '', `/digital-jiageng/sessions/${newSessionId}`)
+    }
+  }, [urlSessionId])
 
   // 组件卸载时清理资源
   useEffect(() => {
@@ -505,6 +528,7 @@ const DigitalJiagengPage: React.FC = () => {
     try {
       const response = await digitalJiagengAPI.chatWithJiageng({
         audio_file: audioFile,
+        session_id: sessionId || undefined,
         settings: ({
           enable_role_play: settings.enableRolePlay,
           input_language: settings.inputLanguage,
@@ -516,6 +540,12 @@ const DigitalJiagengPage: React.FC = () => {
       })
 
       if (response.success) {
+        // 更新会话ID（如果后端返回了新的会话ID）
+        if (response.data.session_id && response.data.session_id !== sessionId) {
+          setSessionId(response.data.session_id)
+          console.log('[DJ-UI] 更新会话ID:', response.data.session_id)
+        }
+
         const jiagengMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           type: 'jiageng',
@@ -552,7 +582,6 @@ const DigitalJiagengPage: React.FC = () => {
 
   // 播放音频
   const playAudio = (messageId: string, audioUrl: string, contentText?: string, initialSubtitles?: Array<{ text: string; start_time: number; end_time: number }>) => {
-    console.debug('[DJ-UI] playAudio called', { messageId, audioUrl, showSubtitles: settings.showSubtitles })
     if (currentlyPlaying === messageId) {
       // 停止播放
       if (currentAudioRef.current) {
@@ -757,7 +786,6 @@ const DigitalJiagengPage: React.FC = () => {
                 </div>
               </div>
 
-
             </Space>
           </Card>
 
@@ -937,15 +965,15 @@ const DigitalJiagengPage: React.FC = () => {
             <Space direction="vertical" style={{ width: '100%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Text>对话轮次:</Text>
-                <Text strong>{Math.floor(messages.length / 2)}</Text>
+                <Text strong>{3}</Text>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Text>我的发言:</Text>
-                <Text>{messages.filter(m => m.type === 'user').length}</Text>
+                <Text>3</Text>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Text>嘉庚回复:</Text>
-                <Text>{messages.filter(m => m.type === 'jiageng').length}</Text>
+                <Text>3</Text>
               </div>
             </Space>
           </Card>

@@ -18,21 +18,16 @@ from app.services import asr_service, tts_service, llm_service
 import json
 import re
 from pathlib import Path
-from app.services.audio_utils import get_duration_seconds, convert_format
+from app.services.audio_utils import get_duration_seconds, process_audio_file
 
 router = APIRouter(tags=["语音文本互转"])
 logger = logging.getLogger(__name__)
 
 # 预加载示例，避免每次请求读盘
 try:
-    _EXAMPLES = json.loads(Path(settings.example_text_path).read_text(encoding="utf-8"))
+    _EXAMPLES = json.loads(Path(settings.minnan_examples_path).read_text(encoding="utf-8"))
 except Exception:
     _EXAMPLES = []
-
-
-# ============ 工具：解析真实音频时长 ============
-def _get_audio_duration_seconds(filename: str, contents: bytes) -> float | None:
-    return get_duration_seconds(filename, contents)
 
 
 # ============ 语音识别 (ASR) 接口 ============
@@ -50,38 +45,8 @@ async def speech_to_text(
     contents = await audio_file.read()
     logger.debug(f"[ASR] 文件大小: {len(contents)} bytes")
     
-    # 音频格式校验
-    if not audio_file.filename:
-        raise ValidationError("文件名不能为空")
-    
-    # 获取文件扩展名
-    file_extension = audio_file.filename.lower().split('.')[-1] if '.' in audio_file.filename else ''
-    
-    # 检查是否为支持的音频格式
-    supported_formats = [fmt.value for fmt in AudioFormat]
-    if file_extension not in supported_formats:
-        raise ValidationError(f"不支持的音频格式: {file_extension}。支持的格式: {', '.join(supported_formats)}")
-    
-    # 文件大小校验：限制为10MB
-    max_size = settings.max_file_size
-    if len(contents) > max_size:
-        raise ValidationError(f"文件大小不能超过10MB，当前文件大小为 {len(contents) / 1024 / 1024:.2f}MB")
-
-    # 音频格式转换：将非WAV格式转换为WAV
-    processed_audio_bytes = contents
-    processed_filename = audio_file.filename
-    
-    if file_extension != 'wav':
-        logger.info(f"[ASR] 检测到非WAV格式 ({file_extension})，开始转换为WAV格式")
-        converted_audio = convert_format(contents, file_extension, 'wav')
-        if converted_audio == contents:
-            raise ValidationError(f"音频格式转换失败，无法将 {file_extension} 格式转换为WAV格式")
-        
-        processed_audio_bytes = converted_audio
-        processed_filename = audio_file.filename.rsplit('.', 1)[0] + '.wav'
-        logger.info(f"[ASR] 音频格式转换成功: {file_extension} -> wav, 大小: {len(processed_audio_bytes)} bytes")
-    else:
-        logger.debug(f"[ASR] 音频已是WAV格式，无需转换")
+    # 统一的音频处理：格式校验、大小校验和格式转换
+    processed_audio_bytes, processed_filename = process_audio_file(audio_file, contents)
 
     # 调用 ASR 服务
     try:
@@ -100,7 +65,7 @@ async def speech_to_text(
         logger.error(f"[ASR] 返回结果不完整: {result}")
         raise ASRServiceError("ASR 服务返回结果无效")
 
-    duration = _get_audio_duration_seconds(processed_filename, processed_audio_bytes)
+    duration = get_duration_seconds(processed_filename, processed_audio_bytes)
     preview = (result["text"] or "")[:60]
     logger.info(f"[ASR] 完成: text='{preview}'... duration={duration}")
     
@@ -163,15 +128,27 @@ async def text_to_speech(
     # 参数验证
     if len(text) > 1000:
         raise ValidationError("文本长度不能超过1000个字符")
+    
+    # 检查语音速度范围
+    if speed < 0.5 or speed > 2.0:
+        raise ValidationError("语音速度必须在0.5-2.0之间")
 
     # 1) LLM 转换 POJ
     example_text = "\n".join(
         [f'示例{i+1}：\nzh：{e.get("zh","")}\nPOJ：{e.get("POJ","")}' for i, e in enumerate(_EXAMPLES)]
     )
     sys_prompt = (
-        "你是方言罗马字助手，请将输入文本转换为闽南语 POJ 白话字注音。"
-        "严格只输出 JSON，格式如下：{\"POJ\":\"用户文本对应的POJ白话文注音（不含标点）\"}。"
-        "不要输出 JSON 以外的任何字符。POJ 中需要将用户原文本的中的标点符号替换为空格以实现句子的分割,句子内使用'-'连接。"
+        "你是闽南语 POJ 白话字助手。"
+        "任务：将输入文本逐句转换为 POJ 白话字注音。"
+        "严格输出 JSON，格式如下："
+        "{\"POJ\": \"对应的 POJ 注音字符串\"}。"
+
+        "规则："
+        "1. 输入文本中的标点符号（例如 。！？；，,.!?;）全部替换为空格，用于句子分割。"
+        "2. 每个句子内部的词语用 '-' 连接。"
+        "3. 多个句子之间用单个空格分隔。"
+        "4. 只输出 JSON，不要包含任何其他文字。"
+
         f"示例：{example_text}"
     )
     user_prompt = f"用户文本：{text}"

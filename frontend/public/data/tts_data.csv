@@ -1,0 +1,4 @@
+instruction,inputText,outputAudio
+将这段文本转换为闽南话语音,"换上这身东南亚风情的服装后，我就开始一段文化之旅的感觉",/audio/tts/minnan.wav
+将这段文本转换为福州话语音,"你好，今天我用福州话给大家讲个故事。",/audio/tts/fuzhou.wav
+将这段文本转换为莆田话语音,"我的父母原是城里卖菜的",/audio/tts/putian.wav

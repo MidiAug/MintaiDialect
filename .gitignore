@@ -161,6 +161,10 @@ uploads/
 temp/
 tmp/
 
+# 对话会话数据
+backend/conversations/
+conversations/
+
 # 日志文件
 logs/
 *.log

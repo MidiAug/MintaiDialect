@@ -144,11 +144,9 @@ const HomePage: React.FC = () => {
             <Button 
               size="large" 
               ghost
-              onClick={() => {
-                document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })
-              }}
+              onClick={() => navigate('/demo')}
             >
-              了解更多
+              查看演示
             </Button>
           </Space>
         </div>

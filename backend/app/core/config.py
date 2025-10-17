@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # 端口按用户要求：ASR=9000, TTS=9002
     asr_service_url: str = os.getenv("ASR_SERVICE_URL", "http://127.0.0.1:9000")
     tts_service_url: str = os.getenv("TTS_SERVICE_URL", "http://127.0.0.1:9002")
+    tts_minnan_service_url: str = os.getenv("TTS_MINNAN_SERVICE_URL", "http://127.0.0.1:9030")
+    tts_cjg_service_url: str = os.getenv("TTS_CJG_SERVICE_URL", "http://127.0.0.1:9031")
     speech_translation_service_url: str = os.getenv("SPEECH_TRANSLATION_SERVICE_URL", "")
     voice_interaction_service_url: str = os.getenv("VOICE_INTERACTION_SERVICE_URL", "")
     voice_cloning_service_url: str = os.getenv("VOICE_CLONING_SERVICE_URL", "")
@@ -50,7 +52,7 @@ class Settings(BaseSettings):
     llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
     
     provider_name: str = os.getenv("PROVIDER_NAME", "gemini")
-    GEMINI_API_KEYS: str = os.getenv("GEMINI_API_KEYS", "AIzaSyCKXieYCpsOyMHTpj2UFs7I5Be__egAGq0,AIzaSyBm1MMLkgmJhBcZVyhEp58IdXXI-tsCZFs")
+    GEMINI_API_KEYS: str = os.getenv("GEMINI_API_KEYS", "AIzaSyBm1MMLkgmJhBcZVyhEp58IdXXI-tsCZFs,AIzaSyDQEMcZ11f-tRfcVA1vsEU8HGd7eiFbcCA")
     provider_api_key: str = os.getenv("PROVIDER_API_KEY", "AIzaSyCKXieYCpsOyMHTpj2UFs7I5Be__egAGq0")
     llm_model_name: str = os.getenv("LLM_MODEL_NAME", "gemini-2.5-flash")
     
@@ -184,5 +186,5 @@ def configure_logging():
     # 第三方库降噪
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
+    logging.getLogger("python_multipart.multipart").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

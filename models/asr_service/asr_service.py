@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from modelscope.pipelines import pipeline
 from modelscope.utils.constant import Tasks
 import tempfile
@@ -22,8 +22,8 @@ if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
 # 加载模型（只加载一次，提升性能）
 inference_pipeline = pipeline(
     task=Tasks.auto_speech_recognition,
-    model="chenyongxian299/speech_UniASR_asr_2pass-minnan-16k-common-vocab3825",
-    device="cpu"  # 可以改为 "gpu"
+    model="iic/speech_UniASR_asr_2pass-minnan-16k-common-vocab3825",
+    device="cuda"  # 可以改为 "gpu"
 )
 
 @app.post("/asr")
@@ -40,8 +40,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
             tmp_path = tmp.name
 
         # 模型推理
-        result = inference_pipeline(input=tmp_path)
-        text = result[0]['text'] if result and result[0] and 'text' in result[0] else ""
+        result = inference_pipeline(audio_in=tmp_path)
+        text = result.get('text', "")
 
         elapsed_ms = (time.monotonic() - start_ts) * 1000
         logger.info(
@@ -56,7 +56,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
     except Exception as e:
         logger.exception("[ASR] error during transcription")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
 
 
 if __name__ == "__main__":

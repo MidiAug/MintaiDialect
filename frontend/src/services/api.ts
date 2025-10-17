@@ -3,7 +3,7 @@ import axios from 'axios'
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -335,6 +335,7 @@ export const systemAPI = {
 export interface DigitalJiagengChatRequest {
   audio_file?: File
   text_input?: string
+  session_id?: string
   settings: {
     enable_role_play: boolean
     input_language: LanguageType
@@ -346,6 +347,7 @@ export interface DigitalJiagengChatRequest {
 }
 
 export interface DigitalJiagengChatResponse {
+  session_id?: string
   response_audio_url?: string
   subtitles: Array<{
     text: string
@@ -361,6 +363,7 @@ export const digitalJiagengAPI = {
     const formData = new FormData()
     if (data.audio_file) formData.append('audio_file', data.audio_file)
     if (data.text_input) formData.append('text_input', data.text_input)
+    if (data.session_id) formData.append('session_id', data.session_id)
     formData.append('enable_role_play', String(data.settings.enable_role_play))
     formData.append('input_language', data.settings.input_language)
     formData.append('output_language', data.settings.output_language)
@@ -377,6 +380,21 @@ export const digitalJiagengAPI = {
   // 获取嘉庚信息（真实后端）
   getJiagengInfo: async (): Promise<ApiResponse<any>> => {
     return api.get('/digital-jiageng/info')
+  },
+
+  // 获取对话历史
+  getConversationHistory: async (sessionId: string): Promise<ApiResponse<any>> => {
+    return api.get(`/digital-jiageng/sessions/${sessionId}/history`)
+  },
+
+  // 删除会话
+  deleteConversation: async (sessionId: string): Promise<ApiResponse<any>> => {
+    return api.delete(`/digital-jiageng/sessions/${sessionId}`)
+  },
+
+  // 获取所有会话列表
+  listSessions: async (): Promise<ApiResponse<any>> => {
+    return api.get('/digital-jiageng/sessions')
   }
 }
 
