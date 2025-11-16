@@ -13,6 +13,8 @@ __all__ = [
     "llm_service",
     "subtitle_service",
     "mock_service",
+    "conversation_service",
+    "jiageng_service",
 ]
 
 

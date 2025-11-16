@@ -1,0 +1,4 @@
+fastapi
+pip install -e .
+loguru
+deepspeed

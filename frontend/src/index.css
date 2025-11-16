@@ -1,3 +1,6 @@
+/* 导入新首页样式 - 必须在最前面 */
+@import './styles/new-home.css'; 
+
 /* 基础样式重置 */
 * {
   margin: 0;
@@ -474,6 +477,3 @@ html, body {
     font-size: 20px;
   }
 }
-
-/* 导入新首页样式 */
-@import './styles/new-home.css'; 

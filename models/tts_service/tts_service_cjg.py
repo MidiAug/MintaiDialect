@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------
 # 读取环境变量
 # ------------------------------
-MODEL_DIR = os.environ.get("MODEL_DIR", "/home/yyz/ckpts/runs/infer-cjg-ckpt")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/home/lcq/backup/ckpt/cjg")
 CFG_PATH = os.path.join(MODEL_DIR, "config.yaml")
 SPEAKER_INFO_PATH = os.path.join(MODEL_DIR, "speaker_info.json")
 OUTPUT_DIR = os.path.join(os.getcwd(), "outputs")
@@ -32,7 +32,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # 默认参考音频路径（必填）
 # ------------------------------
 AUDIO_PROMPT = os.environ.get(
-    "AUDIO_PROMPT", "/home/yyz/infer-code/tests/陈嘉庚.wav"
+    "AUDIO_PROMPT", "/home/lcq/backup/infer-code/tests/陈嘉庚.wav"
 )
 if not os.path.isfile(AUDIO_PROMPT):
     raise FileNotFoundError(f"[TTS-CJG] 找不到默认参考音频: {AUDIO_PROMPT}")

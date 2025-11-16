@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # --- 环境变量配置 ---
-PORT=${PORT:-8000}
+PORT=${PORT:-8008}
 HOST=${HOST:-0.0.0.0}
 LOG_LEVEL=${LOG_LEVEL:-debug}
 PROXY_URL=${PROXY_URL:-"http://127.0.0.1:7890"}

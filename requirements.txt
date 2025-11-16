@@ -1,0 +1,17 @@
+# asr
+funasr==0.8.8
+modelscope==1.10.0
+torch==2.9.0
+transformers==4.49.0
+
+numpy==1.23.5
+python-multipart
+rotary_embedding_torch
+uvicorn
+fastapi
+addict
+
+# 后端
+sqlalchemy
+pydantic_settings
+openai
