@@ -1,7 +1,6 @@
 # asr
 funasr==0.8.8
 modelscope==1.10.0
-torch==2.9.0
 transformers==4.49.0
 
 numpy==1.23.5
@@ -15,3 +14,5 @@ addict
 sqlalchemy
 pydantic_settings
 openai
+
+# pip install torch==2.9.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -i https://pypi.tuna.tsinghua.edu.cn/simple

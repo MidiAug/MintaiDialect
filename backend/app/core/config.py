@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     llm_service_url: str = os.getenv("LLM_SERVICE_URL", "")
     
     provider_name: str = os.getenv("PROVIDER_NAME", "gemini")
-    GEMINI_API_KEYS: str = os.getenv("GEMINI_API_KEYS", "AIzaSyBm1MMLkgmJhBcZVyhEp58IdXXI-tsCZFs,AIzaSyDQEMcZ11f-tRfcVA1vsEU8HGd7eiFbcCA")
+    GEMINI_API_KEYS: str = os.getenv("GEMINI_API_KEYS", "AIzaSyDQEMcZ11f-tRfcVA1vsEU8HGd7eiFbcCA")
     provider_api_key: str = os.getenv("PROVIDER_API_KEY", "AIzaSyCKXieYCpsOyMHTpj2UFs7I5Be__egAGq0")
     llm_model_name: str = os.getenv("LLM_MODEL_NAME", "gemini-2.5-flash")
     

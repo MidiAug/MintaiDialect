@@ -32,7 +32,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # 默认参考音频路径（必填）
 # ------------------------------
 AUDIO_PROMPT = os.environ.get(
-    "AUDIO_PROMPT", "/home/lcq/backup/infer-code/tests/陈嘉庚.wav"
+    "AUDIO_PROMPT", "/root/MintaiDialect/models/tts_service/infer-code/tests/陈嘉庚.wav"
 )
 if not os.path.isfile(AUDIO_PROMPT):
     raise FileNotFoundError(f"[TTS-CJG] 找不到默认参考音频: {AUDIO_PROMPT}")
