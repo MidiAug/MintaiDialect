@@ -181,6 +181,9 @@ backend/models/
 # 后端代码中的数据模型定义需要保留
 !backend/app/models/
 !backend/app/models/**
+# 但需要排除 __pycache__ 缓存目录
+backend/app/models/__pycache__/
+backend/app/models/**/__pycache__/
 
 # 推理服务通用忽略（仅忽略大文件与产物，不忽略代码）
 models/**/weights/
@@ -313,4 +316,12 @@ playground/
 # 确保脚本文件被包含
 !scripts/
 !scripts/*.sh
-!scripts/*.bat 
+!scripts/*.bat
+
+# ========== ckpt 目录特殊规则（放在最后，覆盖前面的规则）==========
+# ckpt/cjg 目录：保留目录结构，但忽略所有文件
+models/tts_service/ckpt/cjg/*
+!models/tts_service/ckpt/cjg/.gitkeep
+# 明确忽略该目录下的 README 文件（覆盖全局的 !README.md 规则）
+models/tts_service/ckpt/cjg/README.md
+models/tts_service/ckpt/cjg/README
