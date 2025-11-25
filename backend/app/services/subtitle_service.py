@@ -11,7 +11,7 @@ def segment_text_to_subtitles(base_text: str, total_duration: float) -> List[Dic
     if not base_text:
         return []
 
-    punct = set('，,。.!！?？、；;：:（）()【】[]"\'…—-')
+    punct = set('，,。.!！?？；;：:（）()【】[]"\'…—-｜|')
 
     segments: List[Tuple[str, int]] = []  # (display_text, timed_len)
     buf_display: List[str] = []

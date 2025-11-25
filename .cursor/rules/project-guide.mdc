@@ -28,10 +28,18 @@ alwaysApply: true
      → 提供统一 API、鉴权、业务逻辑整合。
    * **子服务**
 
-     * `asr_service`：语音识别子模块（9000端口）
-     * `tts_service`：语音合成子模块（9002端口）
-     * `llm_service`：对话与问答子模块（9001端口）
+     * `asr_service`：语音识别子模块（9010端口）
+     * `llm_service`：对话与问答子模块（9020端口）
+     * `tts_service`：语音合成子模块（9030端口）
+     * `tts_service_cjg`：陈嘉庚TTS服务（9031端口，方言TTS服务）
    * **数据库**：SQLite（用户、日志、任务缓存）
+   * **配置文件**：`config/services.json`（统一服务配置）
+
+   * **端口规则**：
+     * 标准服务（多语言模型）：ASR=9010, LLM=9020, TTS=9030
+     * 方言ASR服务：9011, 9012, ... (x从1开始递增)
+     * 方言TTS服务：9031, 9032, ... (x从1开始递增，如陈嘉庚TTS=9031)
+     * 注意：LLM只有标准服务（9020），无方言服务
 
 4. **服务职责边界**
 
@@ -43,28 +51,79 @@ alwaysApply: true
    | Backend  | 路由调度、鉴权、日志、聚合调用 | 不做模型推理      |
    | Frontend | 界面渲染、状态管理       | 不直接访问后端文件系统 |
 
-5. **目录关键结构**
+5. **核心功能模块**
+
+   * **语音文本互转**（ASR/TTS）：语音识别与文本转语音
+   * **语音翻译**（Speech Translation）：方言与普通话双向翻译
+   * **语音交互**（Voice Interaction）：智能语音对话系统
+   * **音色克隆**（Voice Cloning）：文本驱动和音频驱动两种模式
+   * **数字嘉庚**（Digital Jiageng）：数字人对话系统，支持多轮对话、字幕同步、会话管理
+     * 使用陈嘉庚TTS服务（9031端口）进行语音合成
+     * 支持模拟模式（mock_service）用于联调演示
+   * **字幕服务**（Subtitle Service）：智能字幕时间轴拟合
+   * **对话服务**（Conversation Service）：会话ID生成与管理
+
+6. **目录关键结构**
 
    ```
    frontend/
      └── src/
-         ├── pages/
-         ├── api/
-         ├── components/
+         ├── pages/          # 页面组件
+         │   ├── HomePage.tsx
+         │   ├── ASRTTSPage.tsx
+         │   ├── SpeechTranslationPage.tsx
+         │   ├── VoiceInteractionPage.tsx
+         │   ├── VoiceCloningPage.tsx
+         │   ├── DigitalJiagengPage.tsx  # 数字嘉庚页面
+         │   ├── AccountPage.tsx
+         │   ├── LoginPage.tsx
+         │   ├── RegisterPage.tsx
+         │   └── DemoPage.tsx
+         ├── api/            # API 调用封装
+         ├── components/     # 公共组件
+         │   ├── Layout/     # 布局组件
+         │   └── Modules/   # 功能模块组件
+         └── utils/          # 前端工具函数
 
    backend/
      ├── app/
-     │   ├── routers/   # API 路由
-     │   ├── models/    # Pydantic / ORM 等后端数据模型
-     │   ├── services/  # 调用外部模型服务与业务服务编排
-     │   └── utils/     # 通用工具与辅助函数
-     ├── uploads/       # 运行期上传与生成的音频等文件
-     └── main.py        # FastAPI 入口
+     │   ├── routers/        # API 路由
+     │   │   ├── asr_tts.py
+     │   │   ├── speech_translation.py
+     │   │   ├── voice_interaction.py
+     │   │   ├── voice_cloning.py
+     │   │   ├── digital_jiageng.py  # 数字嘉庚路由
+     │   │   └── auth.py
+     │   ├── services/       # 业务服务层
+     │   │   ├── asr_service.py
+     │   │   ├── tts_service.py
+     │   │   ├── llm_service.py
+     │   │   ├── jiageng_service.py      # 数字嘉庚服务
+     │   │   ├── conversation_service.py  # 对话管理服务
+     │   │   ├── subtitle_service.py     # 字幕服务
+     │   │   ├── audio_utils.py          # 音频工具
+     │   │   └── mock_service.py         # 模拟服务
+     │   ├── models/         # Pydantic / ORM 等后端数据模型
+     │   ├── core/           # 核心配置模块
+     │   │   ├── config.py   # 配置管理
+     │   │   ├── db.py       # 数据库连接
+     │   │   └── exceptions.py  # 异常定义
+     │   └── main.py         # FastAPI 入口
+     ├── uploads/            # 运行期上传与生成的音频等文件
+     ├── conversations/      # 会话数据存储
+     ├── cache/              # 缓存目录
+     ├── data/               # 数据文件目录
+     ├── logs/               # 日志文件目录
+     └── dialect_ai.db       # SQLite 数据库
 
    models/
-     ├── asr_service/   # ASR 推理服务工程
-     ├── tts_service/   # TTS 推理服务工程
-     └── llm_service/   # LLM 推理服务工程
+     ├── asr_service/       # ASR 推理服务工程
+     ├── tts_service/        # TTS 推理服务工程
+     │   └── tts_service_cjg.py  # 陈嘉庚TTS服务（9031端口）
+     └── llm_service/        # LLM 推理服务工程
+
+   config/
+     └── services.json       # 统一服务配置文件
    ```
 
 ---
@@ -106,9 +165,9 @@ AI 可在以下情况下引入新模式（如封装、Hook、Service 等），�
 ⚠️ 禁止：
 
 * 修改核心启动逻辑（FastAPI 主服务结构）；
-* 为美观或“单一职责”过度解耦；
+* 为美观或"单一职责"过度解耦；
 * 创建不必要的中间层；
-* 修改端口、路径或模块命名。
+* 修改端口、路径或模块命名（除非遵循端口规则：标准服务9010/9020/9030，方言服务901x/903x，LLM无方言服务）。
 
 ---
 
@@ -125,8 +184,9 @@ AI 可在以下情况下引入新模式（如封装、Hook、Service 等），�
 5. **音频处理约束**：
 
    * 仅支持 WAV 格式。
-   * 临时文件存储于 `/uploads` 或 `/tts_outputs`。
+   * 临时文件存储于 `backend/uploads/` 目录。
    * 使用 `torch.no_grad()` 包裹推理。
+   * 音频文件通过 FastAPI 静态文件服务提供访问（`/uploads` 路径）。
 6. **类型与接口**
 
    * FastAPI 路由定义需含 `summary`。

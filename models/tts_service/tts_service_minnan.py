@@ -163,4 +163,4 @@ def synthesize_post(req: TTSPostRequest, request: Request):
 if __name__ == "__main__":
     set_global_seed(42)
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=9002)
+    uvicorn.run(app, host="0.0.0.0", port=9030)

@@ -395,6 +395,100 @@ export const digitalJiagengAPI = {
   // 获取所有会话列表
   listSessions: async (): Promise<ApiResponse<any>> => {
     return api.get('/digital-jiageng/sessions')
+  },
+
+  // 与嘉庚对话（流式版本）
+  chatWithJiagengStream: async (
+    data: DigitalJiagengChatRequest,
+    onSegment: (segment: {
+      type: 'segment' | 'complete' | 'error'
+      segment_index?: number
+      text: string
+      audio_url?: string
+      audio_duration?: number
+      subtitles?: Array<{ text: string; start_time: number; end_time: number }>
+      all_segments?: any[]
+      error?: string
+    }) => void
+  ): Promise<void> => {
+    const formData = new FormData()
+    if (data.audio_file) formData.append('audio_file', data.audio_file)
+    if (data.text_input) formData.append('text_input', data.text_input)
+    if (data.session_id) formData.append('session_id', data.session_id)
+    formData.append('input_language', data.settings.input_language)
+    formData.append('output_language', data.settings.output_language)
+    formData.append('speaking_speed', String(data.settings.speaking_speed))
+    // FastAPI Form 会自动将字符串 "true"/"false" 转换为布尔值
+    formData.append('show_subtitles', data.settings.show_subtitles ? 'true' : 'false')
+    formData.append('prompt_style', 'pause_format') // 流式模式固定使用 pause_format
+
+    const token = localStorage.getItem('auth_token')
+    const headers: Record<string, string> = {}
+    // 注意：不要手动设置 Content-Type，让浏览器自动设置（包含 boundary）
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    try {
+      const response = await fetch('/api/digital-jiageng/chat/stream', {
+        method: 'POST',
+        headers,
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('无法读取响应流')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // 保留最后一个不完整的行
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6) // 移除 'data: ' 前缀
+            if (dataStr === '[DONE]') {
+              console.log('[Stream] 收到 [DONE] 标记')
+              // 确保在流结束时也设置完成状态
+              onSegment({
+                type: 'complete',
+                text: '',
+                all_segments: []
+              })
+              return
+            }
+
+            try {
+              const chunk = JSON.parse(dataStr)
+              onSegment(chunk)
+            } catch (e) {
+              console.error('[Stream] 解析 JSON 失败:', e, dataStr)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Stream] 流式请求失败:', error)
+      onSegment({
+        type: 'error',
+        text: '',
+        error: error instanceof Error ? error.message : '未知错误',
+        all_segments: [],
+      })
+      throw error
+    }
   }
 }
 

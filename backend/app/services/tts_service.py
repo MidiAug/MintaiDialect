@@ -1,10 +1,11 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 import time
 import logging
+import asyncio
 import httpx
 from app.core.config import settings
 from app.core.exceptions import TTSServiceError
-from app.services.audio_utils import convert_format
+from app.services.audio_utils import convert_format, concatenate_audio_segments
 
 logger = logging.getLogger(__name__)
 
@@ -181,3 +182,93 @@ async def synthesize_cjg(
             logger.warning("[TTS-CJG] attempt=%d failed: %s", attempt, e)
 
     raise TTSServiceError(f"陈嘉庚TTS服务重试失败: {last_exc}")
+
+
+async def synthesize_cjg_batch(
+    text_segments: List[str],
+    speaker: str = "cjg",
+    speaking_rate: float | None = 1.0,
+    audio_format: str = "wav",
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    批处理调用陈嘉庚TTS服务，并发处理多个文本片段，然后合并音频。
+    用于 pause_format 模式，可以真正利用多 GPU/多 Worker 进行并行处理。
+    
+    返回值：{"binary": bytes, "content_type": "audio/wav"}
+    
+    Args:
+        text_segments: 文本片段列表（已按 '｜' 分隔符切分）
+        speaker: 说话人
+        speaking_rate: 语速
+        audio_format: 音频格式
+        **kwargs: 其他参数，传递给具体的TTS服务
+    
+    Returns:
+        {"binary": bytes, "content_type": "audio/wav"} 合并后的完整音频
+    """
+    if not settings.tts_cjg_service_url:
+        raise TTSServiceError("陈嘉庚TTS服务未配置 (tts_cjg_service_url 为空)")
+    
+    if not text_segments:
+        raise TTSServiceError("文本片段列表不能为空")
+    
+    # 如果只有一个片段，直接调用单次接口
+    if len(text_segments) == 1:
+        logger.info("[TTS-CJG-BATCH] 只有一个片段，使用单次接口")
+        return await synthesize_cjg(
+            text=text_segments[0],
+            speaker=speaker,
+            speaking_rate=speaking_rate,
+            audio_format=audio_format,
+            **kwargs
+        )
+    
+    logger.info("[TTS-CJG-BATCH] 开始批处理合成: %d 个片段", len(text_segments))
+    start_time = time.monotonic()
+    
+    async def synthesize_segment(segment_text: str, segment_index: int) -> bytes:
+        """并发合成单个文本片段的音频"""
+        try:
+            result = await synthesize_cjg(
+                text=segment_text,
+                speaker=speaker,
+                speaking_rate=speaking_rate,
+                audio_format=audio_format,
+                **kwargs
+            )
+            if not result.get("binary"):
+                raise TTSServiceError(f"TTS 服务未返回音频数据（片段 {segment_index}: {segment_text[:20]}...）")
+            logger.info("[TTS-CJG-BATCH] 片段 %d/%d 合成成功: %d bytes", 
+                       segment_index + 1, len(text_segments), len(result["binary"]))
+            return result["binary"]
+        except Exception as e:
+            logger.error("[TTS-CJG-BATCH] 片段 %d 合成失败: %s, 错误: %s", 
+                        segment_index, segment_text[:30], e)
+            raise
+    
+    # 并发调用 TTS 服务合成所有片段
+    try:
+        audio_segments = await asyncio.gather(*[
+            synthesize_segment(seg, idx) 
+            for idx, seg in enumerate(text_segments)
+        ])
+        
+        # 合并所有音频片段
+        try:
+            final_audio_bytes = concatenate_audio_segments(audio_segments)
+            elapsed_time = (time.monotonic() - start_time) * 1000
+            logger.info(
+                "[TTS-CJG-BATCH] 批处理完成: %d 个片段 -> %d bytes, 耗时: %.1fms",
+                len(audio_segments),
+                len(final_audio_bytes),
+                elapsed_time,
+            )
+            return {"binary": final_audio_bytes, "content_type": "audio/wav"}
+        except Exception as e:
+            logger.exception("[TTS-CJG-BATCH] 音频合并失败: %s", e)
+            raise TTSServiceError(f"音频合并失败: {str(e)}")
+    
+    except Exception as e:
+        logger.exception("[TTS-CJG-BATCH] 批处理失败: %s", e)
+        raise TTSServiceError(f"批处理TTS服务调用失败: {str(e)}")

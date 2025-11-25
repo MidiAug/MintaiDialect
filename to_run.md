@@ -3,7 +3,7 @@ start-all.sh
 # 终端1 - ASR服务
 cd MintaiDialect
 conda activate mintai
-bash ./scripts/start-asr.sh
+bash ./scripts/start-asr_minnan.sh
 
 # 终端2 - LLM服务  
 cd MintaiDialect
@@ -14,6 +14,11 @@ bash ./scripts/start-llm.sh
 cd MintaiDialect
 conda activate mintai
 bash ./scripts/start-tts.sh
+
+# 终端3 - TTS_CJG服务
+cd MintaiDialect
+conda activate index-tts
+bash ./scripts/start-tts_cjg.sh
 
 # 终端4 - 后端服务
 cd MintaiDialect
@@ -30,7 +35,7 @@ kill -9 $(lsof -t -i :7890)
 cd ~/.config/mihomo
 ./clash-linux
 
-wget -U "Mozilla/6.0" -O ~/.config/mihomo/config.yaml "https://v1.v2ai.top/link/OZUpESmIRbY3JxBPB9NMQJUdgJhxeXK2BUxl?clash=2"
+wget -U "Mozilla/6.0" -O ~/.config/mihomo/config.yaml "https://v1.tlsa.top/link/87rQRt3namvGsin5JrWynBBnbbDeT5AtJDdk?clash=2"
 
 # 终端7 - swagger
 cd MintaiDialect

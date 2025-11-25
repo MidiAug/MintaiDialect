@@ -9,7 +9,7 @@
   - TTS 文本切分更稳（显式标点集合逐字符切句）。
   - 字幕时间更准（静音边界拟合 + 起声补偿 + 保守回退，避免错误合段）。
   - 播放与资源优化（新音频播放前暂停旧音频、关闭临时 AudioContext）。
-  - 端口约定统一：ASR=9000、TTS=9002、LLM=9001（均可通过环境变量覆盖）。
+  - 端口约定统一：标准服务（多语言模型）ASR=9010、LLM=9020、TTS=9030；方言服务 ASR=901x、TTS=903x（x从1开始，LLM无方言服务，均可通过环境变量覆盖）。
 
 ## 📖 项目概述
 
@@ -138,7 +138,7 @@ npm run dev
 
 ### 启动独立模型微服务（本地调试）
 
-提供脚本分别启动 ASR/TTS/LLM 微服务（默认端口：ASR=9000、TTS=9002、LLM=9001）：
+提供脚本分别启动 ASR/TTS/LLM 微服务（默认端口：ASR=9010、TTS=9030、LLM=9020）：
 
 ```bash
 # TTS（facebook/mms-tts-nan）
@@ -154,15 +154,15 @@ bash scripts/single/start-asr.sh
 bash scripts/single/start-frontend.sh
 ```
 
-后端默认从环境变量读取这些服务地址（见“环境变量”），未配置时：
-- ASR: `http://127.0.0.1:9000`
-- TTS: `http://127.0.0.1:9002`
-- LLM: 留空则走云厂商（DeepSeek）；设置 `LLM_SERVICE_URL` 可改为本地服务（如 `http://127.0.0.1:9001`）。
+后端默认从环境变量读取这些服务地址（见"环境变量"），未配置时：
+- ASR: `http://127.0.0.1:9010`
+- TTS: `http://127.0.0.1:9030`
+- LLM: 留空则走云厂商（DeepSeek）；设置 `LLM_SERVICE_URL` 可改为本地服务（如 `http://127.0.0.1:9020`）。
 
 > 小贴士（验证 TTS 缓存命中）：
 ```bash
-curl -s -o uploads/test1.wav "http://127.0.0.1:9002/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
-curl -s -o uploads/test2.wav "http://127.0.0.1:9002/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
+curl -s -o uploads/test1.wav "http://127.0.0.1:9030/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
+curl -s -o uploads/test2.wav "http://127.0.0.1:9030/tts?text=你好，欢迎使用数字嘉庚&speaking_rate=0.9&seed=42"
 # 第二次应看到 [TTS] cache hit 日志
 ```
 
@@ -261,18 +261,18 @@ docker-compose up -d --build
 services:
   tts-service:
     image: your-tts-image
-    ports: ["9002:9002"]
+    ports: ["9030:9030"]
   llm-service:
     image: your-llm-image
-    ports: ["9001:9001"]
+    ports: ["9020:9020"]
   asr-service:
     image: your-asr-image
-    ports: ["9000:9000"]
+    ports: ["9010:9010"]
   backend:
     environment:
-      - ASR_SERVICE_URL=http://asr-service:9000
-      - TTS_SERVICE_URL=http://tts-service:9002
-      - LLM_SERVICE_URL=http://llm-service:9001
+      - ASR_SERVICE_URL=http://asr-service:9010
+      - TTS_SERVICE_URL=http://tts-service:9030
+      - LLM_SERVICE_URL=http://llm-service:9020
 ```
 
 ### 传统部署
@@ -347,16 +347,18 @@ UPLOAD_DIR=uploads
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # 外部微服务/云厂商（按需覆盖）
-ASR_SERVICE_URL=http://127.0.0.1:9000
-TTS_SERVICE_URL=http://127.0.0.1:9002
-# 若启用本地 LLM 服务：
-# LLM_SERVICE_URL=http://127.0.0.1:9001
-PROVIDER_NAME=deepseek
-# 生产环境请设置为真实密钥：
-# PROVIDER_API_KEY=sk-***
-DEEPSEEK_API_BASE=https://api.deepseek.com
-LLM_MODEL_NAME=deepseek-chat
-GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
+ASR_SERVICE_URL=http://127.0.0.1:9010
+TTS_SERVICE_URL=http://127.0.0.1:9030
+# LLM 服务无需配置环境变量：后端会先读取 config/services.json 中 llm 的 host/port，
+# 并通过 http://{host}:{port}/health 自动探测；未探测到时才回退到云端 provider。
+# 方言服务端口示例：
+# ASR方言服务：9011, 9012, ...
+# TTS方言服务：9031, 9032, ...
+# 注意：LLM只有标准服务（9020），无方言服务
+PROVIDER_NAME=qwen   # 可选：gemini / qwen / deepseek ...
+# PROVIDER_API_KEY 支持逗号分隔多把密钥（所有 Provider 轮询使用）
+PROVIDER_API_KEY=sk-demo-key-1,sk-demo-key-2
+LLM_MODEL_NAME=qwen-max
 ```
 
 ### 前端配置

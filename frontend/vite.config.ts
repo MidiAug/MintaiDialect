@@ -1,6 +1,52 @@
+// 类型声明（Node.js 环境）
+declare const process: {
+  env: Record<string, string | undefined>
+}
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+// @ts-ignore - Node.js 内置模块，运行时可用
 import { resolve } from 'path'
+// @ts-ignore - Node.js 内置模块，运行时可用
+import { readFileSync, existsSync } from 'fs'
+// @ts-ignore - Node.js 内置模块，运行时可用
+import { fileURLToPath } from 'url'
+
+// 获取当前文件目录（兼容 ES 模块）
+// @ts-ignore - import.meta.url 在 Vite 中可用
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = resolve(__filename, '..')
+
+// 加载统一服务配置
+function loadServicesConfig() {
+  try {
+    const configPath = resolve(__dirname, '../config/services.json')
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, 'utf-8')
+      return JSON.parse(raw)
+    }
+  } catch (error) {
+    console.warn('⚠️  无法加载统一配置文件，使用默认配置:', error)
+  }
+  // 默认配置
+  return {
+    frontend: { port: 5173, host: 'localhost' },
+    backend: { port: 8008, host: '0.0.0.0' }
+  }
+}
+
+const servicesConfig = loadServicesConfig()
+
+// 获取配置值（优先级：环境变量 > 配置文件 > 默认值）
+const frontendPort = process.env.FRONTEND_PORT 
+  ? parseInt(process.env.FRONTEND_PORT) 
+  : servicesConfig.frontend.port
+
+const backendPort = process.env.BACKEND_PORT 
+  ? parseInt(process.env.BACKEND_PORT) 
+  : servicesConfig.backend.port
+
+const backendHost = process.env.BACKEND_HOST || servicesConfig.backend.host || 'localhost'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -11,7 +57,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: frontendPort,
     host: true, // 保持这个设置，允许外部访问
 
     // --- 以下是为您添加的核心配置 ---
@@ -29,12 +75,12 @@ export default defineConfig({
 
     proxy: {
       '/api': {
-        target: 'http://localhost:8008',
+        target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
-        target: 'http://localhost:8008',
+        target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },

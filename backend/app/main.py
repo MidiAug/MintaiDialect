@@ -15,7 +15,7 @@ import sys
 from app.routers import asr_tts, speech_translation, voice_interaction, voice_cloning, digital_jiageng
 from app.routers import auth as auth_router
 from app.core.config import settings
-from app.core.config import configure_logging
+from app.core.config import configure_logging, refresh_llm_service_url
 from app.core.db import Base, engine
 
 # 创建FastAPI应用实例
@@ -57,6 +57,12 @@ app.include_router(voice_interaction.router, prefix="/api/voice-interaction", ta
 app.include_router(voice_cloning.router, prefix="/api/voice-cloning", tags=["音色克隆"])
 app.include_router(digital_jiageng.router, tags=["数字嘉庚"])
 app.include_router(auth_router.router, prefix="/api", tags=["鉴权与用户"])
+
+
+@app.on_event("startup")
+async def startup_probe_llm():
+    """启动时刷新 LLM 服务地址，保证日志已初始化再输出"""
+    refresh_llm_service_url()
 
 # 统一异常返回格式：将所有 HTTPException 和未捕获异常统一包装为 {success, message, data}
 @app.exception_handler(HTTPException)

@@ -60,5 +60,5 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 if __name__ == "__main__":
-    # 启动服务，端口 9000
-    uvicorn.run(app, host="0.0.0.0", port=9000)
+    # 启动服务，端口 9010
+    uvicorn.run(app, host="0.0.0.0", port=9010)

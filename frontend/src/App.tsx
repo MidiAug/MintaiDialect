@@ -33,17 +33,26 @@ function DigitalJiagengRedirect() {
 
 function App() {
   const location = useLocation()
-  const isDemo = location.pathname === '/demo'
   
-  if (isDemo) {
+  // 1. 判断是否为沉浸式页面 (包含 /digital-jiageng)
+  const isImmersivePage = location.pathname.startsWith('/digital-jiageng') || location.pathname === '/demo'
+  
+  if (location.pathname === '/demo') {
     return <DemoPage />
   }
   
   return (
-    <Layout>
-      <AppHeader />
-      <div className="main-container">
-        <div className="page-container">
+    <Layout style={{ minHeight: '100vh' }}>
+      {/* 2. 如果不是沉浸式页面，才显示 Header */}
+      {!isImmersivePage && <AppHeader />}
+      
+      {/* 3. 动态调整容器样式 */}
+      {/* 如果是沉浸式页面，我们需要移除默认的 padding/margin，让组件全屏覆盖 */}
+      <div 
+        className={isImmersivePage ? "" : "main-container"} 
+        style={isImmersivePage ? { width: '100%', height: '100vh', overflow: 'hidden' } : {}}
+      >
+        <div className={isImmersivePage ? "" : "page-container"}>
             <Routes>
               <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
               <Route path="/login" element={<LoginPage />} />
@@ -53,6 +62,8 @@ function App() {
               <Route path="/speech-translation" element={<ProtectedRoute><SpeechTranslationPage /></ProtectedRoute>} />
               <Route path="/voice-interaction" element={<ProtectedRoute><VoiceInteractionPage /></ProtectedRoute>} />
               <Route path="/voice-cloning" element={<ProtectedRoute><VoiceCloningPage /></ProtectedRoute>} />
+              
+              {/* 嘉庚路由 */}
               <Route path="/digital-jiageng" element={<ProtectedRoute><DigitalJiagengRedirect /></ProtectedRoute>} />
               <Route path="/digital-jiageng/sessions/:sessionId" element={<ProtectedRoute><DigitalJiagengPage /></ProtectedRoute>} />
             </Routes>
@@ -62,4 +73,4 @@ function App() {
   )
 }
 
-export default App 
+export default App

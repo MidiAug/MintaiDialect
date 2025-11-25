@@ -1,0 +1,29 @@
+{
+  "frontend": {
+    "port": 5173,
+    "host": "localhost"
+  },
+  "backend": {
+    "port": 8008,
+    "host": "0.0.0.0"
+  },
+  "services": {
+    "asr_minnan": {
+      "port": 9011,
+      "host": "127.0.0.1"
+    },
+    "llm": {
+      "port": 9020,
+      "host": "127.0.0.1"
+    },
+    "tts_minnan": {
+      "port": 9031,
+      "host": "127.0.0.1"
+    },
+    "tts_cjg": {
+      "port": 9032,
+      "host": "127.0.0.1"
+    }
+  }
+}
+

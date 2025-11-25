@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建必要的目录
-RUN mkdir -p uploads logs cache models
+RUN mkdir -p uploads logs cache
 
 # 暴露端口
 EXPOSE 8000

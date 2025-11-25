@@ -173,3 +173,52 @@ def process_audio_file(file, contents: bytes) -> Tuple[bytes, str]:
     
     return processed_audio_bytes, processed_filename
 
+
+def concatenate_audio_segments(audio_segments: list[bytes]) -> bytes:
+    """
+    合并多个音频片段为一个完整的音频文件
+    
+    Args:
+        audio_segments: 音频片段列表，每个元素为 bytes 类型的 WAV 音频数据
+    
+    Returns:
+        bytes: 合并后的 WAV 音频数据
+    
+    Raises:
+        ValueError: 当 pydub 未安装或音频片段为空时
+    """
+    if AudioSegment is None:
+        raise ValueError("pydub 未安装，无法合并音频片段。请安装: pip install pydub")
+    
+    if not audio_segments:
+        raise ValueError("音频片段列表不能为空")
+    
+    if len(audio_segments) == 1:
+        return audio_segments[0]
+    
+    try:
+        # 加载第一个音频片段作为基准
+        combined = AudioSegment.from_file(io.BytesIO(audio_segments[0]), format="wav")
+        
+        # 依次合并其他片段
+        for segment_bytes in audio_segments[1:]:
+            segment = AudioSegment.from_file(io.BytesIO(segment_bytes), format="wav")
+            # 确保采样率和声道数一致（pydub 会自动处理）
+            combined += segment
+        
+        # 导出为 WAV 格式
+        out_io = io.BytesIO()
+        combined.export(out_io, format="wav")
+        result = out_io.getvalue()
+        
+        logger.info(
+            "[audio_utils] 音频合并完成: %d 个片段 -> %d bytes",
+            len(audio_segments),
+            len(result),
+        )
+        return result
+    
+    except Exception as e:
+        logger.error("[audio_utils] 音频合并失败: %s", e)
+        raise ValueError(f"音频合并失败: {str(e)}")
+
