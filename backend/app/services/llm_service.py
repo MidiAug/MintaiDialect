@@ -100,9 +100,28 @@ async def call_gemini(messages: List[Dict[str, str]], model_hint: str | None):
     try:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        dur = (time.monotonic() - start) * 1000
+        body = e.response.text[:300] if e.response is not None else ""
+        logger.error(
+            "[Gemini] HTTP错误 (API#%s) status=%s url=%s body=%s (%.1fms)",
+            api_index,
+            e.response.status_code if e.response else "unknown",
+            url,
+            body,
+            dur,
+        )
+        return {
+            "text": "",
+            "raw": {
+                "error": str(e),
+                "status": e.response.status_code if e.response else None,
+                "body": body,
+            },
+        }
     except Exception as e:
         dur = (time.monotonic() - start) * 1000
-        logger.error(f"[Gemini] 调用失败 (API#{api_index}) {e} ({dur:.1f}ms)")
+        logger.exception(f"[Gemini] 调用失败 (API#{api_index}) ({dur:.1f}ms)")
         return {"text": "", "raw": str(e)}
 
     js = resp.json()
@@ -142,9 +161,28 @@ async def call_qwen(messages: List[Dict[str, str]], model_hint: str | None):
     try:
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        dur = (time.monotonic() - start) * 1000
+        body = e.response.text[:300] if e.response is not None else ""
+        logger.error(
+            "[Qwen] HTTP错误 (API#%s) status=%s url=%s body=%s (%.1fms)",
+            api_index,
+            e.response.status_code if e.response else "unknown",
+            url,
+            body,
+            dur,
+        )
+        return {
+            "text": "",
+            "raw": {
+                "error": str(e),
+                "status": e.response.status_code if e.response else None,
+                "body": body,
+            },
+        }
     except Exception as e:
         dur = (time.monotonic() - start) * 1000
-        logger.error(f"[Qwen] 调用失败 (API#{api_index}) {e} ({dur:.1f}ms)")
+        logger.exception(f"[Qwen] 调用失败 (API#{api_index}) ({dur:.1f}ms)")
         return {"text": "", "raw": str(e)}
 
     js = resp.json()
@@ -256,12 +294,16 @@ async def call_qwen_stream(
         
     except Exception as e:
         dur = (time.monotonic() - start) * 1000
-        logger.error(f"[Qwen Stream] 调用失败 (API#{api_index}) {e} ({dur:.1f}ms)")
+        logger.exception(f"[Qwen Stream] 调用失败 (API#{api_index}) ({dur:.1f}ms)")
         # 返回错误信息
         yield {
             "text": "",
             "accumulated_text": accumulated_text,
-            "raw": {"error": str(e)},
+            "raw": {
+                "error": str(e),
+                "endpoint": base_url,
+                "model": model,
+            },
             "done": True
         }
 
@@ -325,6 +367,7 @@ async def _call_local_llm(messages: List[Dict[str, str]], model_hint: str | None
 
         resp.raise_for_status()
     except Exception as e:
+        logger.exception("[Local LLM] 调用失败")
         raise LLMServiceError(f"本地 LLM 调用失败: {e}")
 
     js = resp.json()
