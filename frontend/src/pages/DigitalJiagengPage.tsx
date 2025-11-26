@@ -17,11 +17,13 @@ import {
   SettingOutlined,
   InfoCircleOutlined,
   LoadingOutlined,
-  HomeOutlined
+  HomeOutlined,
+  PlusOutlined
 } from '@ant-design/icons'
 import { digitalJiagengAPI, LanguageType } from '@/services/api'
 import jiagengImg from '@/assets/jiageng.png' // 确保你的路径正确
 import { useParams, useNavigate } from 'react-router-dom'
+import { logger } from '@/utils/logger'
 
 const { Text, Title, Paragraph } = Typography
 
@@ -51,6 +53,9 @@ interface JiagengSettings {
   enableStream: boolean  // 流式开关
 }
 
+const pageLogger = logger.create('DigitalJiageng')
+const streamLogger = logger.create('JiagengStream')
+
 const DigitalJiagengPage: React.FC = () => {
   // --- 状态管理 ---
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>()
@@ -75,7 +80,7 @@ const DigitalJiagengPage: React.FC = () => {
     voiceGender: 'male',
     speakingSpeed: 1.0,
     showSubtitles: true,
-    enableStream: false  // 流式开关默认关闭
+    enableStream: true  // 默认开启流式响应，降低首字延迟
   })
 
   // --- Refs ---
@@ -85,8 +90,6 @@ const DigitalJiagengPage: React.FC = () => {
   const recordingTimerRef = useRef<number | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const lastSubtitleRef = useRef<string>('')
-  const lastLogTimeRef = useRef<number>(0)
-  const DEBUG_SUBS = true
   
   // 流式播放队列管理
   const audioQueueRef = useRef<Array<{
@@ -116,14 +119,65 @@ const DigitalJiagengPage: React.FC = () => {
   // 2. 权限初始化
   const initAudioContext = async () => {
     try {
+      pageLogger.info('尝试获取麦克风权限', { sessionId })
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
+      pageLogger.info('麦克风权限获取成功', { sessionId })
       return stream
     } catch (error) {
-      console.error('音频权限获取失败:', error)
+      pageLogger.error('音频权限获取失败', error as Error)
       message.error('无法获取麦克风权限，请检查浏览器设置')
       return null
     }
+  }
+
+  // 2.5. 新建对话
+  const handleNewConversation = () => {
+    pageLogger.info('用户发起新对话', { previousSessionId: sessionId })
+    // 停止当前播放的音频
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    
+    // 停止录音（如果正在录音）
+    if (isRecording && mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current)
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+      }
+    }
+    
+    // 生成新的会话ID
+    const newSessionId = crypto.randomUUID()
+    setSessionId(newSessionId)
+    
+    // 更新URL
+    navigate(`/digital-jiageng/sessions/${newSessionId}`, { replace: true })
+    
+    // 清空消息列表
+    setMessages([])
+    
+    // 重置相关状态
+    setCurrentlyPlaying(null)
+    setCurrentSubtitleText('')
+    setIsProcessing(false)
+    setRecordingTime(0)
+    lastSubtitleRef.current = ''
+    
+    // 重置流式播放队列
+    audioQueueRef.current = []
+    currentQueueIndexRef.current = 0
+    isPlayingQueueRef.current = false
+    accumulatedTextRef.current = ''
+    
+    pageLogger.info('新对话已就绪', { newSessionId })
+    message.success('已创建新对话')
   }
 
   // 3. Audio Blob 转 WAV
@@ -193,7 +247,17 @@ const DigitalJiagengPage: React.FC = () => {
 
   // 5. 开始录音
   const startRecording = async () => {
-    if (isRecording) return
+    if (isRecording) {
+      pageLogger.warn('重复录音触发被忽略', { sessionId })
+      return
+    }
+    
+    if (isProcessing || currentlyPlaying) {
+      pageLogger.warn('正在思考或播放时禁止录音', { sessionId, isProcessing, currentlyPlaying })
+      return
+    }
+    
+    pageLogger.info('用户按下录音按钮', { sessionId, enableStream: settings.enableStream })
     
     const stream = await initAudioContext()
     if (!stream) return
@@ -206,6 +270,7 @@ const DigitalJiagengPage: React.FC = () => {
     }
 
     mediaRecorderRef.current = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined)
+    pageLogger.info('MediaRecorder 创建成功', { mimeType: preferredMimeType || 'default', sessionId })
     
     mediaRecorderRef.current.ondataavailable = (event) => {
       if (event.data.size > 0) recordingChunksRef.current.push(event.data)
@@ -224,6 +289,7 @@ const DigitalJiagengPage: React.FC = () => {
   // 6. 停止录音
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      pageLogger.info('用户松开录音按钮，停止录音', { sessionId, duration: recordingTime })
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       
@@ -232,24 +298,30 @@ const DigitalJiagengPage: React.FC = () => {
       mediaRecorderRef.current.onstop = async () => {
         try {
           const rawType = mediaRecorderRef.current?.mimeType || 'audio/webm'
+          pageLogger.debug('录音停止，开始转换音频格式', { rawType, sessionId })
           const rawBlob = new Blob(recordingChunksRef.current, { type: rawType })
           const wavBlob = await convertToWav(rawBlob)
           const wavFile = new File([wavBlob], 'recording.wav', { type: 'audio/wav' })
+          pageLogger.info('音频转换为 WAV 完成', { size: wavBlob.size, sessionId })
           // 根据流式开关决定使用流式还是非流式版本
           if (settings.enableStream) {
+            pageLogger.info('进入流式请求流程', { sessionId })
             handleAudioMessageStream(wavFile)
           } else {
-          handleAudioMessage(wavFile)
+            pageLogger.info('进入非流式请求流程', { sessionId })
+            handleAudioMessage(wavFile)
           }
         } catch (err) {
-          console.error('WAV转换失败:', err)
+          pageLogger.error('WAV 转换失败，回退到原始音频', err as Error)
           const fallbackBlob = new Blob(recordingChunksRef.current, { type: 'audio/webm' })
           const fallbackFile = new File([fallbackBlob], 'recording.webm', { type: 'audio/webm' })
           // 根据流式开关决定使用流式还是非流式版本
           if (settings.enableStream) {
+            pageLogger.info('使用流式请求发送回退音频', { sessionId })
             handleAudioMessageStream(fallbackFile)
           } else {
-          handleAudioMessage(fallbackFile)
+            pageLogger.info('使用非流式请求发送回退音频', { sessionId })
+            handleAudioMessage(fallbackFile)
           }
         }
       }
@@ -262,31 +334,48 @@ const DigitalJiagengPage: React.FC = () => {
   }
 
   // 6.5. 播放队列中的下一个片段
-  const playNextSegment = () => {
-    if (isPlayingQueueRef.current) return
+  // 修改：增加 messageId 参数
+  const playNextSegment = (messageId: string) => {
+    // 如果已经在播放队列中（且不是刚开始），则不重复触发
+    // 注意：这里我们移除 isPlayingQueueRef.current 的简单判断，改为由调用方控制或内部状态管理
+    // 但为了代码稳健，我们保留 check，只在首次调用时允许通过
     
+    // 获取队列
     const queue = audioQueueRef.current
+    
+    // --- 边界情况：队列播放完毕 ---
     if (currentQueueIndexRef.current >= queue.length) {
-      // 队列播放完成
       isPlayingQueueRef.current = false
       currentQueueIndexRef.current = 0
       audioQueueRef.current = []
       setCurrentSubtitleText('')
+      
+      // 【关键修复】播放结束：清除播放状态，UI 恢复平静
+      setCurrentlyPlaying(null)
+      currentAudioRef.current = null
+      setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, isPlaying: false } : msg))
+      streamLogger.info('所有流式片段播放完成', { messageId })
       return
     }
     
     const segment = queue[currentQueueIndexRef.current]
     if (!segment) {
-      playNextSegment() // 跳过无效片段
+      streamLogger.warn('检测到无效的流式片段，尝试跳过', { messageId })
+      playNextSegment(messageId) // 跳过无效片段
       return
     }
     
+    // 标记内部队列正在运行
     isPlayingQueueRef.current = true
     
+    // 【关键修复】开始播放：激活 UI 的"说话"状态（放大光圈、波纹）
+    setCurrentlyPlaying(messageId)
+    setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, isPlaying: true } : { ...msg, isPlaying: false }))
+
     const audio = new Audio(segment.audioUrl)
     currentAudioRef.current = audio
+    streamLogger.info('开始播放流式片段', { messageId, segmentIndex: segment.segmentIndex, url: segment.audioUrl })
     
-    // 设置字幕同步
     audio.ontimeupdate = () => {
       const currentTime = audio.currentTime
       const epsilon = 0.05
@@ -303,31 +392,32 @@ const DigitalJiagengPage: React.FC = () => {
     
     audio.onended = () => {
       currentQueueIndexRef.current++
-      isPlayingQueueRef.current = false
-      playNextSegment() // 自动播放下一个片段
+      streamLogger.debug('流式片段播放结束，准备播放下一段', { messageId, segmentIndex: segment.segmentIndex })
+      // 递归调用播放下一段，保持 messageId
+      playNextSegment(messageId) 
     }
     
     audio.onerror = () => {
-      console.error(`[Stream] 片段 ${segment.segmentIndex} 播放失败`)
+      streamLogger.error('流式片段播放失败', new Error(`segment ${segment.segmentIndex}`))
       currentQueueIndexRef.current++
-      isPlayingQueueRef.current = false
-      playNextSegment() // 即使失败也继续下一个
+      playNextSegment(messageId)
     }
     
     audio.play().catch(err => {
-      console.error(`[Stream] 片段 ${segment.segmentIndex} 播放错误:`, err)
+      streamLogger.error('流式片段无法播放', err as Error)
       currentQueueIndexRef.current++
-      isPlayingQueueRef.current = false
-      playNextSegment()
+      playNextSegment(messageId)
     })
   }
 
   // 6.6. 处理流式音频消息
   const handleAudioMessageStream = async (audioFile: File) => {
     if (recordingTime < 1) {
+      pageLogger.warn('录音时长不足，已拦截流式请求', { duration: recordingTime })
       message.warning('说话时间太短了')
       return
     }
+    pageLogger.info('开始处理流式音频消息', { sessionId, fileSize: audioFile.size })
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -339,9 +429,12 @@ const DigitalJiagengPage: React.FC = () => {
     }
 
     setMessages(prev => [...prev, userMessage])
+    
+    // 【状态起点】开始思考
     setIsProcessing(true)
+    pageLogger.info('用户语音消息已入队，等待嘉庚响应', { sessionId, messageId: userMessage.id })
 
-    // 创建嘉庚消息（初始为空，流式更新）
+    // 创建嘉庚消息占位
     const jiagengMessageId = (Date.now() + 1).toString()
     const jiagengMessage: ChatMessage = {
       id: jiagengMessageId,
@@ -352,13 +445,14 @@ const DigitalJiagengPage: React.FC = () => {
     }
     setMessages(prev => [...prev, jiagengMessage])
 
-    // 重置队列状态
+    // 重置队列
     audioQueueRef.current = []
     currentQueueIndexRef.current = 0
     isPlayingQueueRef.current = false
     accumulatedTextRef.current = ''
 
     try {
+      pageLogger.info('调用 chatWithJiagengStream 接口', { sessionId, enableStream: settings.enableStream })
       await digitalJiagengAPI.chatWithJiagengStream(
         {
           audio_file: audioFile,
@@ -373,10 +467,9 @@ const DigitalJiagengPage: React.FC = () => {
           } as any)
         },
         (chunk) => {
-          console.log('[Stream] 收到 chunk:', chunk.type, chunk)
+          streamLogger.debug('收到流式 chunk', { type: chunk.type, segmentIndex: chunk.segment_index })
           
           if (chunk.type === 'segment') {
-            // 收到片段，添加到队列
             if (chunk.audio_url && chunk.text) {
               const segmentData = {
                 segmentIndex: chunk.segment_index || 0,
@@ -386,11 +479,9 @@ const DigitalJiagengPage: React.FC = () => {
                 duration: chunk.audio_duration || 0,
               }
               
-              // 按 segment_index 排序插入队列
               audioQueueRef.current.push(segmentData)
               audioQueueRef.current.sort((a, b) => a.segmentIndex - b.segmentIndex)
               
-              // 更新消息内容
               accumulatedTextRef.current += chunk.text
               setMessages(prev => prev.map(msg => 
                 msg.id === jiagengMessageId 
@@ -398,14 +489,20 @@ const DigitalJiagengPage: React.FC = () => {
                   : msg
               ))
               
-              // 如果是第一个片段，立即开始播放
+              // 【关键修复】如果是第一个片段：
+              // 1. 立即结束"思考中"状态
+              // 2. 立即开始播放（进入"回答中"状态）
               if (audioQueueRef.current.length === 1 && !isPlayingQueueRef.current) {
-                playNextSegment()
+                streamLogger.info('首个流式片段到达，结束思考状态并开始播放', { messageId: jiagengMessageId })
+                setIsProcessing(false) // <--- 收到首包，立刻停止思考动画
+                playNextSegment(jiagengMessageId) // <--- 开始播放并触发说话动画
               }
             }
           } else if (chunk.type === 'complete') {
-            // 流式完成
-            console.log('[Stream] 收到完成消息，更新状态')
+            // 流式完成时，确保 isProcessing 为 false（作为双重保险）
+            setIsProcessing(false) 
+            streamLogger.info('流式响应完成', { messageId: jiagengMessageId })
+            
             setMessages(prev => prev.map(msg => 
               msg.id === jiagengMessageId 
                 ? { 
@@ -415,23 +512,16 @@ const DigitalJiagengPage: React.FC = () => {
                   }
                 : msg
             ))
-            
-            setIsProcessing(false)
-            console.log('[Stream] isProcessing 已设置为 false')
           } else if (chunk.type === 'error') {
-            // 错误处理
-            console.error('[Stream] 收到错误消息:', chunk.error)
+            streamLogger.error('流式响应返回错误', new Error(chunk.error || 'unknown'))
             message.error(chunk.error || '嘉庚先生好像没听清，请重试')
-            setIsProcessing(false)
-          } else {
-            // 未知类型，也设置为完成（防止卡住）
-            console.warn('[Stream] 收到未知类型消息:', chunk)
-            setIsProcessing(false)
+            setIsProcessing(false) // 出错也要结束思考
+            setCurrentlyPlaying(null) // 确保不卡在播放状态
           }
         }
       )
     } catch (error) {
-      console.error('[Stream] 流式请求异常:', error)
+      streamLogger.error('流式请求过程中发生异常', error as Error)
       message.error('网络连接异常')
       setIsProcessing(false)
     }
@@ -440,9 +530,11 @@ const DigitalJiagengPage: React.FC = () => {
   // 7. 处理音频发送（非流式版本，保留兼容性）
   const handleAudioMessage = async (audioFile: File) => {
     if (recordingTime < 1) {
+      pageLogger.warn('录音时长不足，已拦截非流式请求', { duration: recordingTime })
       message.warning('说话时间太短了')
       return
     }
+    pageLogger.info('开始处理非流式音频消息', { sessionId, fileSize: audioFile.size })
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -455,8 +547,10 @@ const DigitalJiagengPage: React.FC = () => {
 
     setMessages(prev => [...prev, userMessage])
     setIsProcessing(true)
+    pageLogger.info('已提交非流式用户消息', { sessionId, messageId: userMessage.id })
 
     try {
+      pageLogger.info('调用 chatWithJiageng 接口', { sessionId })
       const response = await digitalJiagengAPI.chatWithJiageng({
         audio_file: audioFile,
         session_id: sessionId || undefined,
@@ -471,8 +565,10 @@ const DigitalJiagengPage: React.FC = () => {
       })
 
       if (response.success) {
+        pageLogger.info('非流式请求成功返回', { sessionId, responseAudio: response.data.response_audio_url })
         if (response.data.session_id && response.data.session_id !== sessionId) {
           setSessionId(response.data.session_id)
+          pageLogger.info('会话ID更新', { newSessionId: response.data.session_id })
         }
 
         const jiagengMessage: ChatMessage = {
@@ -487,21 +583,25 @@ const DigitalJiagengPage: React.FC = () => {
         setMessages(prev => [...prev, jiagengMessage])
         
         if (response.data.response_audio_url) {
-          playAudio(jiagengMessage.id, response.data.response_audio_url, undefined, jiagengMessage.subtitles)
+          pageLogger.debug('准备播放非流式音频回应', { messageId: jiagengMessage.id })
+          playAudio(jiagengMessage.id, response.data.response_audio_url, jiagengMessage.subtitles)
         }
       } else {
+        pageLogger.warn('非流式请求返回失败', { sessionId })
         message.error('嘉庚先生好像没听清，请重试')
       }
     } catch (error) {
-      console.error(error)
+      pageLogger.error('非流式请求异常', error as Error)
       message.error('网络连接异常')
     } finally {
       setIsProcessing(false)
+      pageLogger.info('非流式流程结束', { sessionId })
     }
   }
 
   // 8. 播放音频与字幕同步
-  const playAudio = (messageId: string, audioUrl: string, contentText?: string, initialSubtitles?: Array<{ text: string; start_time: number; end_time: number }>) => {
+  const playAudio = (messageId: string, audioUrl: string, initialSubtitles?: Array<{ text: string; start_time: number; end_time: number }>) => {
+    pageLogger.debug('用户点击播放/暂停按钮', { messageId, currentlyPlaying })
     if (currentlyPlaying === messageId) {
       if (currentAudioRef.current) {
         currentAudioRef.current.pause()
@@ -510,6 +610,7 @@ const DigitalJiagengPage: React.FC = () => {
       setCurrentlyPlaying(null)
       setCurrentSubtitleText('')
       setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, isPlaying: false } : msg))
+      pageLogger.info('用户停止播放当前音频', { messageId })
     } else {
       setCurrentlyPlaying(messageId)
       setCurrentSubtitleText('')
@@ -518,9 +619,10 @@ const DigitalJiagengPage: React.FC = () => {
 
       const audio = new Audio(audioUrl)
       currentAudioRef.current = audio
+      pageLogger.info('开始播放音频消息', { messageId, audioUrl })
 
-      const message = messages.find(msg => msg.id === messageId)
-      let subtitles = (initialSubtitles && initialSubtitles.length > 0) ? initialSubtitles : (message?.subtitles || [])
+      const targetMessage = messages.find(msg => msg.id === messageId)
+      let subtitles = (initialSubtitles && initialSubtitles.length > 0) ? initialSubtitles : (targetMessage?.subtitles || [])
 
       audio.ontimeupdate = () => {
         const currentTime = audio.currentTime
@@ -541,12 +643,16 @@ const DigitalJiagengPage: React.FC = () => {
         setCurrentSubtitleText('')
         currentAudioRef.current = null
         setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, isPlaying: false } : msg))
+        pageLogger.info('音频播放结束', { messageId })
       }
 
       if (currentAudioRef.current && currentAudioRef.current !== audio) {
         try { currentAudioRef.current.pause() } catch {}
       }
-      audio.play()
+      audio.play().catch(err => {
+        pageLogger.error('音频播放失败', err as Error)
+        message.error('音频播放异常，请稍后重试')
+      })
     }
   }
 
@@ -630,6 +736,7 @@ const DigitalJiagengPage: React.FC = () => {
                 transform: scale(1.08);
                 border-color: rgba(212, 175, 55, 0.8);
                 box-shadow: 0 0 50px rgba(212, 175, 55, 0.4);
+                animation: none !important; /* 强制覆盖 breathe 动画 */
             }
 
             .subtitle-overlay {
@@ -761,6 +868,13 @@ const DigitalJiagengPage: React.FC = () => {
              <Text strong style={{ fontSize: 18, color: '#d4af37', letterSpacing: 2 }}>数字嘉庚</Text>
           </div>
           <Space>
+            <Button 
+              shape="circle" 
+              icon={<PlusOutlined />} 
+              className="nav-btn" 
+              onClick={handleNewConversation}
+              title="新建对话"
+            />
             <Button shape="circle" icon={<InfoCircleOutlined />} className="nav-btn" onClick={() => setIntroOpen(true)} />
             <Button shape="circle" icon={<SettingOutlined />} className="nav-btn" onClick={() => setSettingsOpen(true)} />
           </Space>
@@ -804,9 +918,10 @@ const DigitalJiagengPage: React.FC = () => {
                 <div className="mic-inner">
                     {currentlyPlaying ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 24 }}>
-                            {[1,2,3,4,3,2,1].map((n, i) => (
+                            {[1,2,3,4,3,2,1].map((level, i) => (
                                 <div key={i} style={{
                                     width: 3,
+                                    height: level * 4,
                                     background: '#fff',
                                     animation: `soundWave 0.6s infinite ease-in-out ${i * 0.1}s`
                                 }} />

@@ -4,10 +4,11 @@ import { useAuth } from '@/contexts/AuthContext'
 
 interface ProtectedRouteProps {
   children: React.ReactElement
+  requireAdmin?: boolean
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { isAuthenticated } = useAuth()
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requireAdmin = false }) => {
+  const { isAuthenticated, isAdmin } = useAuth()
   const location = useLocation()
 
   // 公共路径无需鉴权
@@ -18,6 +19,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  if (requireAdmin && !isAdmin) {
+    return <Navigate to="/" replace />
   }
 
   return children

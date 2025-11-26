@@ -9,6 +9,7 @@ interface AuthUser {
 
 interface AuthContextValue {
   isAuthenticated: boolean
+  isAdmin: boolean
   user: AuthUser | null
   token: string | null
   loginWithPassword: (username: string, password: string) => Promise<boolean>
@@ -125,6 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const value = useMemo<AuthContextValue>(() => ({
     isAuthenticated: Boolean(token),
+    isAdmin: user?.username === 'admin',
     user,
     token,
     loginWithPassword,

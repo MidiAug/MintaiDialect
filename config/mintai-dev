@@ -1,0 +1,88 @@
+# 闽音智聆开发环境反向代理配置 - Server 块
+# 此文件仅包含 server 块，用于集成到现有 Nginx 配置中
+
+server {
+    listen 80 default_server;
+    server_name _;  # 匹配所有域名和IP，支持公网访问
+    
+    # 增加上传文件大小限制（适应音频文件）
+    client_max_body_size 50M;
+    
+    # 启用gzip压缩
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+
+    # 处理 API 请求，代理到后端服务 (8008 端口)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8008;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 增加超时时间，适应音频处理需求
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        
+        # 禁用缓冲，实时传输
+        proxy_buffering off;
+    }
+
+    # 处理上传文件访问，代理到后端服务
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:8008;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 增加超时时间
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # 处理 Vite HMR WebSocket 连接（@vite/client, /@react-refresh 等）
+    location ~ ^/@ {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # 处理所有其他请求，代理到前端 Vite 开发服务器 (5173 端口)
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持（用于 Vite HMR）
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 禁用缓冲，实时传输
+        proxy_buffering off;
+        
+        # 增加超时时间
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # 错误日志
+    error_log /var/log/nginx/mintai-dev-error.log;
+    access_log /var/log/nginx/mintai-dev-access.log;
+}
+

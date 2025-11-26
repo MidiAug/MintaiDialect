@@ -10,17 +10,19 @@ import ASRTTSPage from '@/pages/ASRTTSPage'
 import SpeechTranslationPage from '@/pages/SpeechTranslationPage'
 import VoiceInteractionPage from '@/pages/VoiceInteractionPage'
 import VoiceCloningPage from '@/pages/VoiceCloningPage'
+import AdminUsersPage from '@/pages/AdminUsersPage'
 import { Layout } from 'antd'
 import AppHeader from './components/Layout/AppHeader'
 import { useEffect, useState } from 'react'
+import { generateUUID } from '@/utils/uuid'
 
 // 数字嘉庚自动重定向组件
 function DigitalJiagengRedirect() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   
   useEffect(() => {
-    // 生成新的UUID格式会话ID
-    const newSessionId = crypto.randomUUID()
+    // 生成新的UUID格式会话ID（兼容不支持 crypto.randomUUID 的浏览器）
+    const newSessionId = generateUUID()
     setSessionId(newSessionId)
   }, [])
   
@@ -62,6 +64,7 @@ function App() {
               <Route path="/speech-translation" element={<ProtectedRoute><SpeechTranslationPage /></ProtectedRoute>} />
               <Route path="/voice-interaction" element={<ProtectedRoute><VoiceInteractionPage /></ProtectedRoute>} />
               <Route path="/voice-cloning" element={<ProtectedRoute><VoiceCloningPage /></ProtectedRoute>} />
+              <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsersPage /></ProtectedRoute>} />
               
               {/* 嘉庚路由 */}
               <Route path="/digital-jiageng" element={<ProtectedRoute><DigitalJiagengRedirect /></ProtectedRoute>} />

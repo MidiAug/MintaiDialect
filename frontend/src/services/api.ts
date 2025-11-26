@@ -521,6 +521,26 @@ export interface RegisterByPhoneRequest {
   code: string
 }
 
+export interface AdminUserRecord {
+  id: number
+  username: string
+  email?: string | null
+  phone?: string | null
+}
+
+export interface AdminCreateUserRequest {
+  username: string
+  password: string
+  email?: string
+  phone?: string
+}
+
+export interface AdminUpdateUserRequest {
+  password?: string
+  email?: string
+  phone?: string
+}
+
 export const authAPI = {
   // 发送邮箱验证码
   sendEmailCode: (email: string, scene: 'register' | 'reset_password' = 'register') => {
@@ -560,6 +580,26 @@ export const authAPI = {
   // 修改密码
   changePassword: (oldPassword: string, newPassword: string) => {
     return api.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword })
+  },
+
+  // 管理员：获取用户列表
+  listUsers: () => {
+    return api.get('/auth/admin/users') as unknown as Promise<ApiResponse<{ users: AdminUserRecord[] }>>
+  },
+
+  // 管理员：创建用户
+  createUser: (data: AdminCreateUserRequest) => {
+    return api.post('/auth/admin/users', data)
+  },
+
+  // 管理员：更新用户
+  updateUser: (userId: number, data: AdminUpdateUserRequest) => {
+    return api.patch(`/auth/admin/users/${userId}`, data)
+  },
+
+  // 管理员：删除用户
+  deleteUser: (userId: number) => {
+    return api.delete(`/auth/admin/users/${userId}`)
   },
 }
 

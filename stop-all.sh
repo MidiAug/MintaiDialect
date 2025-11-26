@@ -1,7 +1,7 @@
 #!/bin/bash
 # 一键停止 MintaiDialect 所有服务，稳健版本
 
-PORTS=(8000 9010 9011 9020 9030 9031 5173 5174 7890)
+PORTS=(8000 8008 9010 9011 9020 9030 9031 9032 5173 5174 7890)
 LOG_DIR=${LOG_DIR:-~/MintaiDialect/mintai-logs}
 RETRY=${RETRY:-5}
 SLEEP_SEC=${SLEEP_SEC:-1}

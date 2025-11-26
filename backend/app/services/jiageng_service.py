@@ -449,25 +449,18 @@ async def _synthesize_jiageng_audio(
 
     try:
         # 检测是否使用 pause_format 模式（文本中包含 '｜' 分隔符）
+        tts_start_time = None
         if is_pause_format or "｜" in text:
+            
             # 按 '｜' 分割文本，过滤空片段
-            text_segments = [seg.strip() for seg in text.split("｜") if seg.strip()]
-            if len(text_segments) > 1:
-                logger.info("[JGS] 使用批处理 TTS 接口: %d 个片段", len(text_segments))
-                # 使用批处理接口并发请求，真正利用多 GPU/多 Worker
-                tts_res = await tts_service.synthesize_cjg_batch(
-                    text_segments=text_segments,
-                    speaker="cjg",
-                    speaking_rate=speaking_speed,
-                )
-            else:
-                # 只有一个片段或没有有效片段，使用正常接口
-                logger.info("[JGS] 使用正常 TTS 接口（单片段）")
-                tts_res = await tts_service.synthesize(
-                    text=text,
-                    target_language="cjg",
-                    speaking_rate=speaking_speed,
-                )
+            logger.info("[JGS] 使用批处理 TTS 接口")
+            tts_start_time = time.monotonic()
+            # 使用批处理接口并发请求，真正利用多 GPU/多 Worker
+            tts_res = await tts_service.synthesize_cjg_batch_client(
+                text=text,
+                speaker="cjg",
+                speaking_rate=speaking_speed,
+            )
         else:
             # 普通模式，使用正常接口
             logger.info("[JGS] 使用正常 TTS 接口（普通模式）")
@@ -491,7 +484,12 @@ async def _synthesize_jiageng_audio(
         audio_duration = get_duration_seconds(out_path.name, tts_res["binary"])
         audio_url = f"/uploads/{out_path.name}"
 
-        logger.info("[JGS] TTS 成功: file=%s, size=%d", out_path, len(tts_res["binary"]))
+        # 如果使用了批处理接口，记录从开始批处理到 TTS 成功的总耗时
+        if tts_start_time is not None:
+            total_elapsed = (time.monotonic() - tts_start_time) * 1000
+            logger.info("[JGS] TTS 成功: file=%s, size=%d, 总耗时: %.1fms", out_path, len(tts_res["binary"]), total_elapsed)
+        else:
+            logger.info("[JGS] TTS 成功: file=%s, size=%d", out_path, len(tts_res["binary"]))
     except Exception as e:
         logger.exception("[JGS] TTS 生成失败 text_preview=%s: %s", text[:50], e)
         raise TTSServiceError(f"TTS 服务调用失败: {str(e)}")
@@ -565,19 +563,19 @@ async def chat_with_audio(
     processed_audio_bytes, processed_filename = process_audio_file_like(audio_filename, audio_bytes)
 
     # 2) ASR：音频 → 用户文本
-    # try:
-    #     asr_res = await asr_service.transcribe(
-    #         processed_filename or "recording.wav",
-    #         processed_audio_bytes,
-    #         source_language=input_language.value,
-    #     )
-    #     user_input = asr_res.get("text", "") or ""
-    #     logger.info("[JGS] ASR 完成: %s", user_input[:50])
-    # except Exception as e:
-    #     logger.exception("[JGS] ASR 服务调用失败: %s", e)
-    #     raise ASRServiceError(f"ASR 服务调用失败: {str(e)}")
+    try:
+        asr_res = await asr_service.transcribe(
+            processed_filename or "recording.wav",
+            processed_audio_bytes,
+            source_language=input_language.value,
+        )
+        user_input = asr_res.get("text", "") or ""
+        logger.info("[JGS] ASR 完成: %s", user_input[:50])
+    except Exception as e:
+        logger.exception("[JGS] ASR 服务调用失败: %s", e)
+        raise ASRServiceError(f"ASR 服务调用失败: {str(e)}")
     
-    user_input = "请介绍一下你自己"
+    # user_input = "详细介绍一下你的生平"
     prompt_style = "pause_format"
     
     # 3) LLM：根据用户文本生成嘉庚回答
@@ -650,26 +648,27 @@ async def chat_with_audio_stream(
     """
     segment_results: List[Dict[str, Any]] = []
     full_text = ""
+    history_saved = False
     
     try:
         # 1) 音频预处理（大小/格式校验及必要转换）
         processed_audio_bytes, processed_filename = process_audio_file_like(audio_filename, audio_bytes)
 
         # 2) ASR：音频 → 用户文本
-        # try:
-        #     asr_res = await asr_service.transcribe(
-        #         processed_filename or "recording.wav",
-        #         processed_audio_bytes,
-        #         source_language=input_language.value,
-        #     )
-        #     user_input = asr_res.get("text", "") or ""
-        #     logger.info("[JGS-Stream] ASR 完成: %s", user_input[:50])
-        # except Exception as e:
-        #     logger.exception("[JGS-Stream] ASR 服务调用失败: %s", e)
-        #     raise ASRServiceError(f"ASR 服务调用失败: {str(e)}")
+        try:
+            asr_res = await asr_service.transcribe(
+                processed_filename or "recording.wav",
+                processed_audio_bytes,
+                source_language=input_language.value,
+            )
+            user_input = asr_res.get("text", "") or ""
+            logger.info("[JGS-Stream] ASR 完成: %s", user_input[:50])
+        except Exception as e:
+            logger.exception("[JGS-Stream] ASR 服务调用失败: %s", e)
+            raise ASRServiceError(f"ASR 服务调用失败: {str(e)}")
         
         # 临时硬编码（用于测试）
-        user_input = "请介绍一下你自己"
+        # user_input = "详细介绍一下你的生平"
         prompt_style = "pause_format"
         
         # 3) 流式 LLM：根据用户文本生成嘉庚回答
@@ -761,7 +760,11 @@ async def chat_with_audio_stream(
                             logger.exception("[JGS-Stream] 最后片段 TTS 失败: %s", e)
                 
                 # 记录对话历史
-                conversation_service.add_to_conversation_history(session_id, user_input, full_text)
+                try:
+                    conversation_service.add_to_conversation_history(session_id, user_input, full_text)
+                    history_saved = True
+                except Exception as conv_err:
+                    logger.exception("[JGS-Stream] 会话历史保存失败: %s", conv_err)
                 
                 # 返回完整结果（确保一定会发送）
                 complete_message = {
@@ -769,13 +772,39 @@ async def chat_with_audio_stream(
                     "text": full_text,
                     "all_segments": segment_results,
                 }
-                logger.info("[JGS-Stream] 发送完成消息: type=complete, text_len=%d, segments=%d", 
-                           len(full_text), len(segment_results))
+                logger.info(
+                    "[JGS-Stream] 发送完成消息: type=complete, text_len=%d, segments=%d",
+                    len(full_text),
+                    len(segment_results),
+                )
                 yield complete_message
-                break
+                return
         
+        # 补偿：若未收到完整标记但已有文本，仍需保存历史并返回 complete
+        if not history_saved and full_text:
+            logger.warning("[JGS-Stream] 未收到完整标记，使用补偿逻辑保存对话")
+            try:
+                conversation_service.add_to_conversation_history(session_id, user_input, full_text)
+                history_saved = True
+            except Exception as conv_err:
+                logger.exception("[JGS-Stream] 补偿保存会话失败: %s", conv_err)
+            
+            fallback_complete = {
+                "type": "complete",
+                "text": full_text,
+                "all_segments": segment_results,
+            }
+            yield fallback_complete
+            return
+    
     except Exception as e:
         logger.exception("[JGS-Stream] 流式处理失败: %s", e)
+        # 失败时如果已生成文本也尝试保存
+        if full_text and not history_saved:
+            try:
+                conversation_service.add_to_conversation_history(session_id, user_input, full_text)
+            except Exception as conv_err:
+                logger.exception("[JGS-Stream] 错误路径保存会话失败: %s", conv_err)
         # 返回错误信息
         yield {
             "type": "error",

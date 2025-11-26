@@ -1,5 +1,5 @@
 先安装torch
-pip install torch==2.9.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install torch==2.9.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/cu121 -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 然后搞到 umap 解压到环境的site-packages
 # 进入目标 site-packages 目录

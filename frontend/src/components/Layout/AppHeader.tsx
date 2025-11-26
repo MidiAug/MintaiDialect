@@ -9,6 +9,7 @@ import {
   UserOutlined,
   ExperimentOutlined,
   LogoutOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/contexts/AuthContext'
 import logoImage from '@/assets/logo.png'
@@ -19,7 +20,7 @@ const { Title } = Typography
 const AppHeader: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, isAdmin } = useAuth()
 
   // 菜单项配置
   const menuItems = [
@@ -96,6 +97,16 @@ const AppHeader: React.FC = () => {
         <Dropdown
           menu={{
             items: [
+              ...(isAdmin
+                ? [
+                    {
+                      key: 'admin-users',
+                      icon: <TeamOutlined />,
+                      label: '用户管理',
+                      onClick: () => navigate('/admin/users'),
+                    },
+                  ]
+                : []),
               {
                 key: 'account',
                 icon: <UserOutlined />,

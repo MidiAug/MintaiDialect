@@ -137,6 +137,7 @@ async def chat_with_jiageng_stream(
     
     async def generate_stream():
         """生成 SSE 流式响应"""
+        first_chunk_sent = False  # 标记是否已发送第一条响应
         try:
             logger.info("[DJ-Stream] 开始流式处理")
             async for chunk in jiageng_service.chat_with_audio_stream(
@@ -165,6 +166,12 @@ async def chat_with_jiageng_stream(
                         return obj
                 
                 serializable_chunk = convert_to_dict(chunk)
+                
+                # 记录第一条响应发送时间
+                if not first_chunk_sent:
+                    first_response_time = time.time() - start_time
+                    logger.info("[DJ-Stream] 第一条响应发送，耗时: %.2f秒", first_response_time)
+                    first_chunk_sent = True
                 
                 # 格式化为 SSE 格式
                 # 注意：确保 JSON 序列化时正确处理中文字符
